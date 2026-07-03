@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Entorno local (credenciales)
+.env
+
+# Datos generados y resultados de ejecuciones
+datos/demo/
+datos/estropeado/
+auditoria/*.jsonl
+eval/resultados/
+
+# Claude Code: ajustes personales (los del proyecto sí se versionan)
+.claude/settings.local.json
+
+# Sistema
+.DS_Store

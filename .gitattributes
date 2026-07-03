@@ -1,0 +1,6 @@
+# Los scripts que se ejecutan dentro de los contenedores (Linux) deben tener LF,
+# también si el repositorio se clona en Windows con core.autocrlf.
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
