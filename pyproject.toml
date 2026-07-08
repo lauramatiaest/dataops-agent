@@ -1,0 +1,54 @@
+[project]
+name = "dataops-agent"
+version = "0.1.0"
+description = "Agente de IA extensible (skills + MCP) para construir modelos de datos analíticos en PostgreSQL y dashboards en Metabase con barreras de seguridad y auditoría."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    # SDK oficial de MCP. En la serie 2.x, FastMCP pasó a llamarse MCPServer.
+    "mcp>=2.2,<3",
+    "psycopg[binary]>=3.2,<4",
+    "sqlglot>=26,<31",
+    "httpx>=0.27,<1",
+    "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "faker>=30",
+]
+datos = ["faker>=30"]
+
+[project.scripts]
+dataops-mcp = "dataops_agent.servidor:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataops_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+markers = [
+    "integracion: necesita un PostgreSQL real (variable DATAOPS_TEST_DSN)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# RUF001-003: el código usa español (tildes, ñ) en textos y comentarios de forma intencionada.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# En los tests se prefieren datos de prueba legibles en una línea a respetar el ancho.
+"tests/*" = ["E501"]
