@@ -1,0 +1,64 @@
+# DataOps Agent: entorno local completo (PostgreSQL 16 + Metabase OSS).
+# Uso: cp .env.example .env  &&  docker compose up -d
+# Los puertos se publican solo en 127.0.0.1: nada queda expuesto a la red local.
+name: dataops-agent
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Variables que usa docker/postgres/init/01-inicializar.sh
+      DATAOPS_LECTOR_USUARIO: ${DATAOPS_LECTOR_USUARIO}
+      DATAOPS_LECTOR_PASSWORD: ${DATAOPS_LECTOR_PASSWORD}
+      DATAOPS_ESCRITOR_USUARIO: ${DATAOPS_ESCRITOR_USUARIO}
+      DATAOPS_ESCRITOR_PASSWORD: ${DATAOPS_ESCRITOR_PASSWORD}
+      DATAOPS_ESQUEMA: ${DATAOPS_ESQUEMA}
+      MB_APP_BD: ${MB_APP_BD}
+      MB_APP_USUARIO: ${MB_APP_USUARIO}
+      MB_APP_PASSWORD: ${MB_APP_PASSWORD}
+    ports:
+      - "127.0.0.1:${DATAOPS_PG_PUERTO:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mismas plantillas SQL que usa dataops_agent.admin (una sola fuente de verdad)
+      - ./src/dataops_agent/sql:/plantillas:ro
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  metabase:
+    # Versión fijada: los endpoints del MetabaseAdapter se verificaron contra v0.64.2.8.
+    image: metabase/metabase:v0.64.2.8
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Metabase guarda SUS metadatos en una BD propia (no en H2 ni en la de datos).
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: ${MB_APP_BD}
+      MB_DB_USER: ${MB_APP_USUARIO}
+      MB_DB_PASS: ${MB_APP_PASSWORD}
+    ports:
+      - "127.0.0.1:${METABASE_PUERTO:-3000}:3000"
+    volumes:
+      - /dev/urandom:/dev/random:ro   # como en el ejemplo oficial: arranque más rápido
+    healthcheck:
+      # La imagen oficial (Alpine) incluye curl; /api/health devuelve 200 cuando está lista.
+      test: ["CMD-SHELL", "curl --fail -I http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  pgdata:
