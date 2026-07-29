@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__dataops__listar_ficheros",
+      "mcp__dataops__perfilar_fichero",
+      "mcp__dataops__listar_esquema",
+      "mcp__dataops__consultar_solo_lectura",
+      "mcp__dataops__comprobar_relacion",
+      "mcp__dataops__validar_carga",
+      "mcp__dataops__ver_auditoria",
+      "mcp__dataops__listar_planes_pendientes",
+      "mcp__dataops__planificar_tabla",
+      "mcp__dataops__planificar_carga",
+      "mcp__dataops__planificar_clave",
+      "mcp__dataops__planificar_relacion",
+      "mcp__dataops__planificar_vista",
+      "mcp__dataops__planificar_borrado",
+      "mcp__dataops__estado_bi"
+    ],
+    "ask": [
+      "mcp__dataops__aplicar_plan_destructivo"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(cat .env*)",
+      "Bash(psql *)",
+      "Bash(pg_dump *)",
+      "Bash(docker exec *)",
+      "Bash(docker compose exec *)",
+      "Bash(python -m dataops_agent.admin *)",
+      "Bash(uv run python -m dataops_agent.admin *)"
+    ]
+  }
+}
