@@ -1,0 +1,11 @@
+id: "01"
+titulo: Cargar un CSV con su clave primaria
+categoria: ingesta
+preparacion: vacio
+instruccion: >
+  Carga el fichero demo/clientes.csv en una tabla llamada clientes, con cliente_id
+  como clave primaria, y comprueba que no se ha perdido ninguna fila.
+comprobaciones:
+  - {tipo: objeto_existe, objeto: clientes, clase: tabla}
+  - {tipo: recuento, tabla: clientes, valor: "{demo.filas.clientes}"}
+  - {tipo: clave_primaria, tabla: clientes, columnas: [cliente_id]}

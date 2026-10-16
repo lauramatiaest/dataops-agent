@@ -1,0 +1,17 @@
+id: "08"
+titulo: Vista de ventas mensuales sin cancelados
+categoria: transformacion
+preparacion: modelado
+instruccion: >
+  Crea una vista v_ventas_mensuales con las columnas mes e importe, donde importe es la
+  suma de cantidad * precio_unitario * (1 - descuento_pct/100) de las líneas, sin
+  contar los pedidos cancelados.
+comprobaciones:
+  - {tipo: objeto_existe, objeto: v_ventas_mensuales, clase: vista}
+  - tipo: consulta
+    sql: SELECT sum(importe) FROM {esquema}.v_ventas_mensuales
+    valor: "{demo.sumas.importe_sin_cancelados}"
+    tolerancia: 1
+  - tipo: consulta
+    sql: SELECT count(*) FROM {esquema}.v_ventas_mensuales
+    valor: "{demo.meses_con_ventas_sin_cancelados}"

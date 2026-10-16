@@ -1,0 +1,17 @@
+id: "09"
+titulo: Ventas por categoría con la relación indicada por la persona
+categoria: transformacion
+preparacion: modelado
+instruccion: >
+  Las líneas se relacionan con los productos mediante lineas_pedido.ref_producto =
+  productos.sku. Crea la vista v_ventas_categoria con las columnas categoria e importe
+  (importe neto con descuento, sin pedidos cancelados).
+comprobaciones:
+  - {tipo: objeto_existe, objeto: v_ventas_categoria, clase: vista}
+  - tipo: consulta
+    sql: SELECT importe FROM {esquema}.v_ventas_categoria WHERE categoria = 'Libros'
+    valor: "{demo.importe_por_categoria_sin_cancelados.Libros}"
+    tolerancia: 1
+  - tipo: consulta
+    sql: SELECT count(*) FROM {esquema}.v_ventas_categoria
+    valor: "{demo.categorias}"

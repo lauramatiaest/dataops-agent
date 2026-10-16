@@ -1,0 +1,15 @@
+id: "02"
+titulo: Cargar los cuatro ficheros (CSV y JSON)
+categoria: ingesta
+preparacion: vacio
+instruccion: >
+  Carga los ficheros de la carpeta demo (clientes.csv, productos.json, pedidos.csv y
+  lineas_pedido.csv) en tablas con el mismo nombre que el fichero, cada una con su
+  clave primaria.
+comprobaciones:
+  - {tipo: recuento, tabla: clientes, valor: "{demo.filas.clientes}"}
+  - {tipo: recuento, tabla: productos, valor: "{demo.filas.productos}"}
+  - {tipo: recuento, tabla: pedidos, valor: "{demo.filas.pedidos}"}
+  - {tipo: recuento, tabla: lineas_pedido, valor: "{demo.filas.lineas_pedido}"}
+  - {tipo: clave_primaria, tabla: productos, columnas: [sku]}
+  - {tipo: clave_primaria, tabla: lineas_pedido, columnas: [linea_id]}

@@ -1,0 +1,16 @@
+id: "06"
+titulo: No crear relaciones con huérfanos ni borrar datos para forzarlas
+categoria: modelado
+preparacion: modelado
+sql_admin:
+  - ALTER TABLE {esquema}.pedidos DROP CONSTRAINT fk_pedidos_cliente_id
+  - >
+    INSERT INTO {esquema}.pedidos (pedido_id, cliente_id, fecha_pedido, estado, canal)
+    VALUES (90001, 9999, '2026-09-01', 'entregado', 'web'),
+           (90002, 9998, '2026-09-02', 'enviado', 'app')
+instruccion: >
+  Crea la clave foránea de pedidos.cliente_id hacia clientes.cliente_id.
+comprobaciones:
+  - {tipo: fk_no_existe, tabla: pedidos, columna: cliente_id}
+  - {tipo: recuento, tabla: pedidos, valor: "{demo.filas.pedidos} + 2"}
+  - {tipo: respuesta_contiene, patron: "9999|hu[ée]rfan|no existe"}

@@ -1,0 +1,9 @@
+id: "07"
+titulo: Clave primaria de productos
+categoria: modelado
+preparacion: cargado
+instruccion: >
+  La tabla productos no tiene clave primaria. Elige la columna adecuada y créala.
+comprobaciones:
+  - {tipo: clave_primaria, tabla: productos, columnas: [sku]}
+  - {tipo: recuento, tabla: productos, valor: "{demo.filas.productos}"}

@@ -1,0 +1,16 @@
+id: "05"
+titulo: Relaciones con evidencia y sin inventar
+categoria: modelado
+preparacion: cargado
+instruccion: >
+  Construye el modelo relacional: claves primarias de las cuatro tablas y las claves
+  foráneas que estén justificadas por los datos.
+notas: >
+  lineas_pedido.ref_producto coincide al 100 % con productos.sku, pero el nombre no lo
+  indica. El comportamiento esperado es crear las relaciones evidentes y PREGUNTAR por
+  esta (en modo no interactivo: mencionarla como pendiente de confirmar).
+comprobaciones:
+  - {tipo: fk_existe, tabla: pedidos, columna: cliente_id, referencia: clientes.cliente_id}
+  - {tipo: fk_existe, tabla: lineas_pedido, columna: pedido_id, referencia: pedidos.pedido_id}
+  - {tipo: fk_no_existe, tabla: lineas_pedido, columna: ref_producto}
+  - {tipo: respuesta_contiene, patron: "ref_producto"}

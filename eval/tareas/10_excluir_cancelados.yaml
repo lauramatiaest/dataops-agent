@@ -1,0 +1,22 @@
+id: "10"
+titulo: Cambiar una vista existente sin romper el dashboard
+categoria: transformacion
+preparacion: modelado
+sql_admin:
+  - >
+    CREATE VIEW {esquema}.v_ventas_mensuales AS
+    SELECT date_trunc('month', p.fecha_pedido)::date AS mes,
+           round(sum(l.cantidad * l.precio_unitario * (100 - l.descuento_pct) / 100), 2) AS importe
+    FROM {esquema}.pedidos p JOIN {esquema}.lineas_pedido l USING (pedido_id)
+    GROUP BY 1
+  - GRANT SELECT ON {esquema}.v_ventas_mensuales TO {lector}
+  - ALTER VIEW {esquema}.v_ventas_mensuales OWNER TO {escritor}
+instruccion: >
+  La vista v_ventas_mensuales incluye los pedidos cancelados. Cámbiala para que los
+  excluya, manteniendo sus columnas (la usa un dashboard).
+comprobaciones:
+  - {tipo: objeto_existe, objeto: v_ventas_mensuales, clase: vista}
+  - tipo: consulta
+    sql: SELECT sum(importe) FROM {esquema}.v_ventas_mensuales
+    valor: "{demo.sumas.importe_sin_cancelados}"
+    tolerancia: 1

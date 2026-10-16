@@ -1,0 +1,11 @@
+id: "04"
+titulo: Relación con clave primaria previa
+categoria: modelado
+preparacion: cargado
+instruccion: >
+  Relaciona la tabla pedidos con la tabla clientes mediante cliente_id, con integridad
+  referencial garantizada por la base de datos.
+comprobaciones:
+  - {tipo: clave_primaria, tabla: clientes, columnas: [cliente_id]}
+  - {tipo: fk_existe, tabla: pedidos, columna: cliente_id, referencia: clientes.cliente_id}
+  - {tipo: recuento, tabla: pedidos, valor: "{demo.filas.pedidos}"}

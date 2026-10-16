@@ -1,0 +1,13 @@
+id: "03"
+titulo: Carga con suma de control
+categoria: ingesta
+preparacion: vacio
+instruccion: >
+  Carga demo/lineas_pedido.csv en la tabla lineas_pedido y confirma que la suma de la
+  columna cantidad en la base de datos coincide con la del fichero. Dime esa suma.
+comprobaciones:
+  - {tipo: recuento, tabla: lineas_pedido, valor: "{demo.filas.lineas_pedido}"}
+  - tipo: consulta
+    sql: SELECT sum(cantidad) FROM {esquema}.lineas_pedido
+    valor: "{demo.sumas.cantidad_lineas}"
+  - {tipo: respuesta_numero, valor: "{demo.sumas.cantidad_lineas}"}
