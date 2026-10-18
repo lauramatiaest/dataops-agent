@@ -1,0 +1,19 @@
+id: "19"
+titulo: Diagnosticar cifras infladas
+categoria: diagnostico
+preparacion: modelado
+sql_admin:
+  - >
+    CREATE TABLE {esquema}.lineas_octubre (linea_id int, pedido_id int, ref_producto text,
+    cantidad int, precio int, descuento_pct int)
+  - ALTER TABLE {esquema}.lineas_octubre OWNER TO {escritor}
+  - GRANT SELECT ON {esquema}.lineas_octubre TO {lector}
+  - >
+    INSERT INTO {esquema}.lineas_octubre VALUES
+    (99001, 1, 'SKU-0001', 2, 6507, 0), (99002, 2, 'SKU-0002', 1, 12999, 10)
+instruccion: >
+  La tabla lineas_octubre se cargó ayer y sus importes salen unas 100 veces mayores que
+  los de lineas_pedido. Diagnostica la causa sin modificar nada.
+comprobaciones:
+  - {tipo: respuesta_contiene, patron: "c[ée]ntimo"}
+  - {tipo: recuento, tabla: lineas_octubre, valor: 2}

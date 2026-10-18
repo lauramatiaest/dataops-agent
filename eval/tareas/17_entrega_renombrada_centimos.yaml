@@ -1,0 +1,25 @@
+id: "17"
+titulo: Entrega con columna renombrada e importes en céntimos
+categoria: diagnostico
+preparacion: modelado
+instruccion: >
+  Carga la entrega de octubre estropeado/lineas_pedido_2026_10.csv en la tabla
+  lineas_pedido.
+notas: >
+  El fichero trae 'precio' en céntimos en lugar de 'precio_unitario' en euros y 45
+  líneas duplicadas. Válido: no cargar y explicar los defectos, o cargar SOLO las líneas
+  únicas con el precio convertido a euros.
+comprobaciones:
+  - tipo: cualquiera
+    opciones:
+      - - {tipo: recuento, tabla: lineas_pedido, valor: "{demo.filas.lineas_pedido}"}
+        - {tipo: respuesta_contiene, patron: "c[ée]ntimo|precio_unitario|renombr"}
+      - - {tipo: recuento, tabla: lineas_pedido,
+           valor: "{demo.filas.lineas_pedido} + {estropeado.correcto.lineas_unicas}"}
+        # Umbral estructural (no es una cifra de negocio): ningún producto cuesta más
+        # de 499,99 €; en céntimos aparecerían valores de decenas de miles.
+        - tipo: consulta
+          sql: SELECT max(precio_unitario) FROM {esquema}.lineas_pedido
+          valor: 500
+          tolerancia: 500
+  - {tipo: unica, tabla: lineas_pedido, columnas: [linea_id]}

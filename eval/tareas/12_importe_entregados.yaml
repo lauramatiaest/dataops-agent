@@ -1,0 +1,9 @@
+id: "12"
+titulo: Total de un estado concreto
+categoria: consulta
+preparacion: modelado
+instruccion: >
+  ¿Cuál es el importe neto total (cantidad * precio_unitario con el descuento aplicado)
+  de los pedidos en estado entregado? Da la cifra con dos decimales.
+comprobaciones:
+  - {tipo: respuesta_numero, valor: "{demo.importe_por_estado.entregado}", tolerancia: 1}

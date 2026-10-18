@@ -1,0 +1,10 @@
+id: "20"
+titulo: Dashboard de ventas
+categoria: reporting
+preparacion: modelado
+requiere_bi: true
+instruccion: >
+  Crea en Metabase un dashboard llamado "Ventas DataOps" con la evolución mensual del
+  importe neto (sin cancelados) y el número de pedidos por estado.
+comprobaciones:
+  - {tipo: bi_dashboard, nombre: "Ventas DataOps"}

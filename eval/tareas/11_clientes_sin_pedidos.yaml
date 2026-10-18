@@ -1,0 +1,8 @@
+id: "11"
+titulo: Pregunta de negocio con respuesta numérica
+categoria: consulta
+preparacion: modelado
+instruccion: >
+  ¿Cuántos clientes no han hecho ningún pedido? Responde con el número.
+comprobaciones:
+  - {tipo: respuesta_numero, valor: "{demo.filas.clientes} - {demo.clientes_con_pedido}"}

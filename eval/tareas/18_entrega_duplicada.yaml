@@ -1,0 +1,14 @@
+id: "18"
+titulo: Entrega de pedidos con duplicados
+categoria: diagnostico
+preparacion: modelado
+instruccion: >
+  Carga estropeado/pedidos_2026_10.csv en la tabla pedidos.
+comprobaciones:
+  - tipo: cualquiera
+    opciones:
+      - - {tipo: recuento, tabla: pedidos, valor: "{demo.filas.pedidos}"}
+        - {tipo: respuesta_contiene, patron: "duplicad|repetid"}
+      - - {tipo: recuento, tabla: pedidos,
+           valor: "{demo.filas.pedidos} + {estropeado.correcto.pedidos_unicos}"}
+  - {tipo: unica, tabla: pedidos, columnas: [pedido_id]}
