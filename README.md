@@ -1,0 +1,238 @@
+# DataOps Agent
+
+**Agente de IA extensible mediante skills y MCP que, desde Claude Code, construye
+modelos de datos analíticos en PostgreSQL y dashboards en Metabase a partir de ficheros
+CSV/JSON, con barreras de seguridad y auditoría.**
+
+Prototipo del Trabajo de Fin de Grado (Ingeniería Informática, Universidad Europea,
+2026-27). Objetivo TRL 4: prototipo de extremo a extremo en laboratorio, con datos
+sintéticos.
+
+> **Estado (18/10/2026):** primera versión completa. El servidor MCP, la seguridad, la
+> auditoría y las validaciones están probados contra un PostgreSQL 16 real (188 tests).
+> **Sin probar todavía:** el `docker-compose.yml` levantado, Metabase real (solo con un
+> simulador de su API), el uso interactivo desde Claude Code y la evaluación con
+> `claude -p`. Detalle en [Estado y limitaciones](#estado-y-limitaciones).
+
+---
+
+## Qué es
+
+Un analista de BI le pide a Claude Code, en lenguaje natural, cosas como *"carga estos
+ficheros, relaciónalos y hazme un dashboard de ventas mensuales sin cancelados"*. El
+agente lo hace, pero **no con acceso libre a la base de datos**, sino a través de un
+servidor MCP propio que solo ofrece operaciones seguras:
+
+- **Lee y perfila** ficheros (tipos, nulos, cardinalidad, candidatas a clave).
+- **Planifica antes de escribir:** cada cambio es un *plan* con el SQL exacto, su
+  impacto y sus bloqueos, que la persona ve antes de aplicarlo.
+- **No inventa relaciones:** comprueba huérfanos antes de crear una clave foránea y
+  pregunta si los nombres no aportan evidencia.
+- **Pide aprobación humana** para todo lo destructivo (DROP, TRUNCATE, DELETE).
+- **Valida de forma determinista** cada carga (recuentos, sumas de control, unicidad).
+- **Audita** cada llamada (quién, qué, cuándo, resultado, plan) en una tabla de solo
+  anexado y en JSONL.
+- **Publica** preguntas y dashboards en Metabase mediante un adaptador intercambiable.
+
+El comportamiento del agente (cuándo perfilar, cuándo preguntar, cómo validar) vive en
+`CLAUDE.md` y en **skills** (`.claude/skills/*/SKILL.md`), de modo que se puede ampliar
+con nuevas capacidades sin tocar el núcleo; la skill `diagnostico-reparacion` es el
+ejemplo (en borrador).
+
+Coste: **solo la suscripción de Claude.** El producto no llama a la API de Claude ni a
+ningún servicio de pago; todo lo demás es open source y local.
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    U([Analista]) -->|lenguaje natural| CC
+
+    subgraph CC [Claude Code · suscripción]
+        direction TB
+        M[CLAUDE.md<br/>reglas del agente]
+        S[Skills<br/>ingesta · modelado · transformación<br/>reporting · validación · diagnóstico]
+        P[Permisos .claude/settings.json<br/>ask: aplicar_plan_destructivo]
+    end
+
+    CC <-->|MCP stdio| MCP
+
+    subgraph MCP [Servidor MCP dataops · Python 3.12]
+        direction TB
+        H[Herramientas<br/>lectura · planificar_* · aplicar_plan · BI]
+        V[Validador SQL<br/>sqlglot]
+        PL[Planes<br/>planificar → aplicar]
+        VA[Validaciones<br/>deterministas]
+        AU[Auditoría<br/>JSONL + tabla]
+        BI[BIAdapter]
+        H --> V & PL & VA & AU
+        H --> BI
+    end
+
+    subgraph DC [Docker Compose · local]
+        PG[(PostgreSQL 16<br/>esquema por proyecto<br/>rol lector / rol escritor)]
+        MB[Metabase OSS<br/>v0.64.2.8]
+    end
+
+    F[/CSV · JSON<br/>datos/]/ --> H
+    PL -->|rol escritor<br/>una transacción| PG
+    H -->|rol lector<br/>solo lectura| PG
+    BI -->|API REST| MB
+    MB -->|rol lector| PG
+```
+
+### Barreras de seguridad (defensa en profundidad)
+
+| Capa | Qué impide | Dónde |
+|---|---|---|
+| Reglas del agente | Escribir sin plan, rodear bloqueos, inventar relaciones | `CLAUDE.md`, skills |
+| Permisos del cliente | Aplicar algo destructivo sin que la persona lo apruebe; usar psql o leer `.env` | `.claude/settings.json` |
+| Validador SQL | Varias sentencias, sentencias fuera de lista, salir del esquema, catálogo, funciones peligrosas | `seguridad/validador_sql.py` |
+| Patrón de planes | Ejecutar algo distinto de lo revisado, aplicar dos veces, planes caducados o bloqueados | `planes.py`, `aplicador.py` |
+| Transacción y verificación | Cargas parciales, ficheros cambiados entre planificar y aplicar | `aplicador.py` |
+| Rutas de ficheros | Leer fuera de `datos/` (incluidos enlaces simbólicos) | `ficheros.py` |
+| Privilegios de PostgreSQL | Lector sin escritura; escritor solo en su esquema; auditoría sin UPDATE/DELETE | `sql/roles.sql`, `sql/proyecto.sql` |
+| Sesión de PostgreSQL | Consultas eternas (`statement_timeout`), `search_path` cambiado | `conexion.py` |
+| Auditoría | Acciones sin rastro | `auditoria.py` |
+
+Decisiones justificadas en [docs/arquitectura.md](docs/arquitectura.md).
+
+## Requisitos
+
+- **Docker** con Docker Compose v2 (Docker Desktop en Windows/macOS).
+- **[uv](https://docs.astral.sh/uv/)** (gestiona Python 3.12 y las dependencias).
+- **Claude Code** con sesión iniciada con tu suscripción (`claude` y después `/login`).
+- Git. Unos 3 GB libres para las imágenes.
+
+## Instalación paso a paso
+
+```bash
+# 1. Código y configuración
+git clone <url-de-tu-repo> dataops-agent && cd dataops-agent
+cp .env.example .env          # cambia las contraseñas (solo [A-Za-z0-9_-.])
+
+# 2. PostgreSQL + Metabase
+docker compose up -d
+docker compose ps             # espera a que ambos estén "healthy" (Metabase tarda 1-3 min)
+
+# 3. Python y dependencias
+uv sync --extra dev
+
+# 4. Datos sintéticos (semilla fija)
+uv run python datos/generar_datos.py
+
+# 5. Metabase: cuenta de administración y conexión a PostgreSQL con el rol lector
+uv run python scripts/configurar_metabase.py
+
+# 6. Tests (unitarios; con DATAOPS_TEST_DSN también los de integración)
+uv run pytest
+export DATAOPS_TEST_DSN="host=localhost port=5432 user=dataops_admin password=cambia_admin_123 dbname=dataops"
+uv run pytest -v
+```
+
+Los tests de integración crean roles `dataops_*_test` y el esquema `proyecto_test` en
+la misma base de datos; no tocan `proyecto_demo`.
+
+## Conectarlo a Claude Code
+
+El repositorio ya trae todo lo necesario:
+
+- `.mcp.json` declara el servidor `dataops` (stdio, lanzado con `uv run dataops-mcp`).
+- `CLAUDE.md` y `.claude/skills/` definen el comportamiento del agente.
+- `.claude/settings.json` define los permisos.
+
+```bash
+cd dataops-agent
+claude
+```
+
+1. Claude Code pregunta si confías en el servidor MCP del proyecto: acepta `dataops`.
+2. Escribe `/mcp` y comprueba que `dataops` aparece conectado con sus herramientas.
+3. Prueba: *"Lista los ficheros de datos y perfila demo/pedidos.csv"*.
+
+Permisos: las herramientas de lectura y planificación están permitidas;
+`aplicar_plan` y las de BI piden permiso la primera vez (puedes permitirlas para la
+sesión); `aplicar_plan_destructivo` **pide aprobación siempre**.
+
+## Guion de la demo (5 minutos)
+
+1. *"Carga los cuatro ficheros de `datos/demo` con su clave primaria y valida las
+   cargas."* → perfiles, planes con SQL, validación con recuentos y sumas.
+2. *"Construye el modelo relacional."* → crea `pedidos→clientes` y
+   `lineas_pedido→pedidos`, y **pregunta** por `ref_producto`↔`sku` con la evidencia.
+3. *"Crea un dashboard con las ventas mensuales y las ventas por categoría."* →
+   vistas `v_*`, preguntas y dashboard en Metabase.
+4. *"Excluye los pedidos cancelados."* → se redefine la vista y el dashboard cambia.
+5. *"Borra la tabla clientes."* → plan destructivo bloqueado por dependientes y
+   aprobación requerida; se enseña la auditoría.
+
+Guion completo con tiempos, frases y plan B: [docs/demo.md](docs/demo.md).
+
+## Evaluación
+
+Banco de 20 tareas con resultado conocido y comparación **A** (Claude Code con SQL
+directo, sin barreras) frente a **B** (Claude Code + skills + MCP propio), lanzada con
+`claude -p`. Preparada y probada con un Claude simulado; **pendiente de ejecutar**.
+Ver [eval/README.md](eval/README.md).
+
+## Estructura del repositorio
+
+```
+├── CLAUDE.md                     # reglas del agente
+├── .claude/skills/<skill>/SKILL.md
+├── .claude/settings.json         # permisos (allow / ask / deny)
+├── .mcp.json                     # servidor MCP del proyecto
+├── docker-compose.yml            # PostgreSQL 16 + Metabase v0.64.2.8
+├── docker/postgres/init/         # inicialización (roles, auditoría, esquema)
+├── src/dataops_agent/
+│   ├── servidor.py               # herramientas MCP (capa fina + auditoría)
+│   ├── seguridad/validador_sql.py
+│   ├── planes.py · planificador.py · aplicador.py
+│   ├── perfilado.py · ficheros.py · validaciones.py · catalogo.py
+│   ├── auditoria.py · conexion.py · config.py · admin.py
+│   ├── bi/base.py (BIAdapter) · bi/metabase.py (MetabaseAdapter)
+│   └── sql/roles.sql · sql/proyecto.sql
+├── datos/generar_datos.py        # datos sintéticos + variante estropeada
+├── scripts/configurar_metabase.py
+├── eval/                         # tareas YAML, comparador, lanzador A/B
+├── tests/                        # pytest (unitarios + integración)
+└── docs/arquitectura.md · docs/demo.md
+```
+
+## Estado y limitaciones
+
+**Probado** (en Linux, Python 3.13 y PostgreSQL 16.15 nativo): validador SQL, planes,
+planificadores, aplicador, auditoría (JSONL y tabla, solo anexado), privilegios de los
+roles, validaciones, generador de datos (la carga real cuadra al céntimo con el
+manifiesto), servidor MCP por cliente en proceso y por stdio, adaptador de Metabase
+contra un simulador de su API, comparador y lanzador de la evaluación con un Claude
+simulado.
+
+**Sin probar:** `docker compose up` (validado solo con `docker compose config`),
+Metabase real, el uso desde Claude Code (incluida la regla `ask`), `claude -p` y
+Python 3.12 (CI lo ejecuta en 3.12). Ruff no se ha podido ejecutar en local: lo
+ejecuta CI.
+
+**Limitaciones conocidas:**
+- El validador es análisis estático: es la primera barrera, no la única (los
+  privilegios de PostgreSQL son la que no se puede saltar).
+- Las reglas `deny` de Bash de Claude Code no son una frontera de seguridad: con Bash
+  permitido, un comando distinto podría saltárselas. Por eso Bash no está permitido por
+  defecto y Claude Code pide aprobación para cada comando.
+- Los planes viven en memoria del proceso del servidor MCP (si se reinicia, se
+  replanifica).
+- El contenido de los ficheros llega al modelo (perfiles, ejemplos): un CSV con
+  instrucciones maliciosas en sus celdas es un riesgo de *prompt injection* que mitigan
+  las barreras, pero no elimina.
+- La skill `diagnostico-reparacion` es un borrador.
+
+## Uso de IA en el desarrollo
+
+Este prototipo se ha desarrollado con ayuda de **Claude Code** (Anthropic), que ha
+generado gran parte del código y la documentación bajo la dirección de la autora. Cada
+commit lo declara con el trailer `Co-Authored-By: Claude`. El uso de IA en el TFG
+está sujeto a la autorización del tutor según el plan de trabajo de la asignatura.
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).
