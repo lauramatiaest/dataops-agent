@@ -3,7 +3,6 @@ name = "dataops-agent"
 version = "0.1.0"
 description = "Agente de IA extensible (skills + MCP) para construir modelos de datos analíticos en PostgreSQL y dashboards en Metabase con barreras de seguridad y auditoría."
 readme = "README.md"
-license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = [
     # SDK oficial de MCP. En la serie 2.x, FastMCP pasó a llamarse MCPServer.
