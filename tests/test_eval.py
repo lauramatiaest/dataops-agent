@@ -176,9 +176,8 @@ def test_tarea_resuelta_se_aprueba(cfg: Config, dir_datos: Path, conn_admin: psy
 def test_lanzador_con_claude_simulado(
     cfg: Config, dir_datos: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    falso = tmp_path / "claude_falso"
-    falso.write_text(
-        f"#!{sys.executable}\n"
+    script = tmp_path / "claude_falso.py"
+    script.write_text(
         "import json, sys\n"
         "assert sys.argv[1] == '-p'\n"
         "print(json.dumps({'type': 'assistant', 'message': {'content': [\n"
@@ -187,7 +186,15 @@ def test_lanzador_con_claude_simulado(
         "                  'duration_ms': 10, 'is_error': False, 'permission_denials': []}))\n",
         encoding="utf-8",
     )
-    falso.chmod(falso.stat().st_mode | stat.S_IEXEC)
+    if sys.platform == "win32":
+        # Windows no ejecuta scripts con shebang: se envuelve en un .cmd
+        falso = tmp_path / "claude_falso.cmd"
+        falso.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+    else:
+        falso = tmp_path / "claude_falso"
+        falso.write_text(f"#!{sys.executable}\n" + script.read_text(encoding="utf-8"),
+                         encoding="utf-8")
+        falso.chmod(falso.stat().st_mode | stat.S_IEXEC)
     for clave, valor in {
         "DATAOPS_ESQUEMA": cfg.esquema, "DATAOPS_LECTOR_USUARIO": cfg.lector_usuario,
         "DATAOPS_LECTOR_PASSWORD": cfg.lector_password, "DATAOPS_ESCRITOR_USUARIO": cfg.escritor_usuario,
