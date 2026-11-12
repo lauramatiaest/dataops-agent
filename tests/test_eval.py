@@ -23,7 +23,7 @@ from eval.preparar import preparar
 from tests.conftest import DSN_ADMIN
 
 pytest.importorskip("faker")
-from datos import generar_datos  # noqa: E402
+from datos import generar_datos
 
 
 # ------------------------------------------------------------------ unitarios

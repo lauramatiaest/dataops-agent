@@ -13,9 +13,9 @@ import pytest
 
 pytest.importorskip("faker")
 
-from datos import generar_datos  # noqa: E402
-from dataops_agent.config import Config  # noqa: E402
-from dataops_agent.servidor import Servicio  # noqa: E402
+from dataops_agent.config import Config
+from dataops_agent.servidor import Servicio
+from datos import generar_datos
 
 
 def _huellas(directorio: Path) -> dict[str, str]:
