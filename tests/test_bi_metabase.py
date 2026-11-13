@@ -218,3 +218,21 @@ def test_uso_de_objetos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
     assert [p["nombre"] for p in uso["v_ventas_2"]["preguntas"]] == ["Otra"]
     assert uso["v_ventas_2"]["dashboards"] == []
     assert "clientes" not in uso
+
+
+def test_uso_de_objetos_formato_nuevo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    """Metabase reciente devuelve las preguntas con la consulta dentro de ``stages``."""
+    mb = _adaptador(cfg_mb, simulado)
+    bd = mb.id_base_datos()
+    simulado.cards[500] = {
+        "name": "Ventas (MBQL 5)",
+        "dataset_query": {
+            "lib/type": "mbql/query",
+            "database": bd,
+            "stages": [{"lib/type": "mbql.stage/native",
+                        "native": "SELECT *\nFROM\nv_ventas_mensuales"}],
+        },
+    }
+    uso = mb.uso_de_objetos(["v_ventas_mensuales", "v_ventas"])
+    assert [p["nombre"] for p in uso["v_ventas_mensuales"]["preguntas"]] == ["Ventas (MBQL 5)"]
+    assert "v_ventas" not in uso

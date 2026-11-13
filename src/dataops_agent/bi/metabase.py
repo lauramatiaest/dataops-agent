@@ -234,7 +234,9 @@ class MetabaseAdapter(BIAdapter):
             consulta = card.get("dataset_query") or {}
             if consulta.get("database") != bd or card.get("archived"):
                 continue
-            texto = str((consulta.get("native") or {}).get("query") or "")
+            # Formato antiguo ({"native": {"query": ...}}) o nuevo de Metabase
+            # ({"stages": [{"native": ...}]}): se buscan todos sus textos.
+            texto = "\n".join(_textos(consulta))
             for nombre, patron in patrones.items():
                 if patron.search(texto):
                     ref = {"id": card["id"], "nombre": card.get("name", ""),
@@ -299,6 +301,17 @@ class MetabaseAdapter(BIAdapter):
     # ------------------------------------------------------------- internos
     def _consulta_nativa(self, sql: str) -> dict[str, Any]:
         return {"type": "native", "native": {"query": sql}, "database": self.id_base_datos()}
+
+
+def _textos(valor: Any) -> list[str]:
+    """Todas las cadenas de una estructura JSON (dict/list anidados)."""
+    if isinstance(valor, str):
+        return [valor]
+    if isinstance(valor, dict):
+        return [t for v in valor.values() for t in _textos(v)]
+    if isinstance(valor, list):
+        return [t for v in valor for t in _textos(v)]
+    return []
 
 
 def _colocar(pregunta_ids: list[int], fila_inicial: int = 0) -> list[dict[str, int]]:
