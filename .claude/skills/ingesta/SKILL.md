@@ -27,7 +27,9 @@ haya evidencia, y una validación que demuestra que no se ha perdido ni inventad
    - Enseña el SQL y aplica con `aplicar_plan`.
 5. **Cargar:** `planificar_carga(tabla, fichero)` (modo `anadir` por defecto).
    - Con bloqueos, NO apliques: explica cada uno (columna inexistente o renombrada,
-     valores con tipo inválido, claves repetidas o ya existentes) y pregunta.
+     valores con tipo inválido, claves repetidas o ya existentes, filas sin padre) y
+     pregunta. Si son defectos de la entrega (duplicados, renombrados, cambios de
+     unidad), cambia a la skill `diagnostico-reparacion`.
    - `modo="reemplazar"` es destructivo si la tabla tiene filas: solo si la persona lo
      pide, y con `aplicar_plan_destructivo`.
 6. **Validar** inmediatamente con la skill `validacion` (`validar_carga` con la clave y
@@ -36,12 +38,15 @@ haya evidencia, y una validación que demuestra que no se ha perdido ni inventad
 ## Cuándo parar y preguntar
 
 - El fichero tiene filas duplicadas exactas o claves repetidas.
+- Hay filas cuyo padre no existe (p. ej. líneas de pedidos que aún no se han cargado):
+  carga antes la tabla padre.
 - Una columna del fichero no existe en la tabla (posible renombrado en origen).
 - Los tipos no cuadran con lo esperado (importes como texto, fechas en otro formato).
 - La validación no cuadra.
 
 En esos casos describe la evidencia (cuántas filas, ejemplos) y ofrece opciones; para
-datos que antes cargaban bien y ahora fallan, usa la skill `diagnostico-reparacion`.
+reparar una entrega defectuosa usa la skill `diagnostico-reparacion`. Nunca crees ni
+edites ficheros de datos para "arreglarlos".
 
 ## Orden de carga
 

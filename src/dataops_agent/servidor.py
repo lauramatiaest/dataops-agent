@@ -9,7 +9,8 @@ Herramientas (agrupadas por riesgo):
 * Lectura: listar_ficheros, perfilar_fichero, listar_esquema, consultar_solo_lectura,
   comprobar_relacion, validar_carga, ver_auditoria, listar_planes_pendientes.
 * Planificación (no modifican nada): planificar_tabla, planificar_carga,
-  planificar_clave, planificar_relacion, planificar_vista, planificar_borrado.
+  planificar_carga_transformada, planificar_clave, planificar_relacion,
+  planificar_vista, planificar_borrado, descartar_plan.
 * Escritura: aplicar_plan (solo planes NO destructivos) y aplicar_plan_destructivo
   (Claude Code pide siempre aprobación humana por la regla "ask" de
   .claude/settings.json).
@@ -42,9 +43,10 @@ from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config, cargar_dotenv, validar_identificador
 from dataops_agent.ficheros import EXTENSIONES, ErrorFichero, abrir
 from dataops_agent.perfilado import perfilar
-from dataops_agent.planes import AlmacenPlanes, ErrorPlan
+from dataops_agent.planes import AlmacenPlanes, ErrorPlan, TipoPaso
 from dataops_agent.planificador import ColumnaDef, ErrorPlanificacion, Planificador
 from dataops_agent.seguridad import Modo, SQLRechazado, ValidadorSQL
+from dataops_agent.transformaciones import OrigenTransformado, Transformacion
 
 INSTRUCCIONES = """\
 Servidor de operaciones de datos seguras sobre PostgreSQL y Metabase.
@@ -235,14 +237,29 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         clave: list[str] | None = None,
         columnas_suma: list[str] | None = None,
         relaciones: list[list[str]] | None = None,
+        plan_carga: str | None = None,
     ) -> dict[str, Any]:
         """Validación determinista tras una carga: recuento frente a los ficheros de
         origen, sumas de control de `columnas_suma`, unicidad de `clave` y huérfanos de
-        `relaciones` ([[columna_hija, tabla_padre, columna_padre], ...])."""
+        `relaciones` ([[columna_hija, tabla_padre, columna_padre], ...]).
+        Si la carga se hizo con planificar_carga_transformada, pasa su `plan_carga`: los
+        ficheros de ese plan se comparan ya transformados (como se cargaron)."""
 
         def accion() -> dict[str, Any]:
             validar_identificador(tabla, "tabla")
-            origenes = [abrir(cfg.dir_datos, f) for f in ficheros]
+            origenes: list[Any] = [abrir(cfg.dir_datos, f) for f in ficheros]
+            if plan_carga:
+                transformados = {
+                    Path(p.fichero).resolve(): p.transformacion
+                    for p in s.almacen.obtener(plan_carga).pasos
+                    if p.tipo is TipoPaso.CARGA and p.fichero and p.transformacion
+                }
+                origenes = [
+                    OrigenTransformado(o, transformados[o.ruta.resolve()])
+                    if o.ruta.resolve() in transformados
+                    else o
+                    for o in origenes
+                ]
             with s.gestor.lectura() as conn:
                 comprobaciones = validaciones.validar_carga(
                     conn, cfg.esquema, tabla, origenes, clave, columnas_suma
@@ -256,7 +273,10 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
             todas_ok = all(c.ok for c in comprobaciones)
             return {"valido": todas_ok, "comprobaciones": [c.como_dict() for c in comprobaciones]}
 
-        return s.auditado("validar_carga", "VALIDAR", accion, detalle={"tabla": tabla})
+        return s.auditado(
+            "validar_carga", "VALIDAR", accion,
+            detalle={"tabla": tabla, **({"plan_carga": plan_carga} if plan_carga else {})},
+        )
 
     @servidor.tool(annotations=_LECTURA)
     def ver_auditoria(ultimos: int = 20) -> dict[str, Any]:
@@ -270,6 +290,16 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
     def listar_planes_pendientes() -> dict[str, Any]:
         """Planes creados en esta sesión que aún no se han aplicado."""
         return {"ok": True, "planes": [p.como_dict() for p in s.almacen.pendientes()]}
+
+    @servidor.tool(annotations=_PLANIFICA)
+    def descartar_plan(plan_id: str, motivo: str = "") -> dict[str, Any]:
+        """Retira un plan pendiente que ya no se va a usar (p. ej. sustituido por otro).
+        No toca la base de datos; el plan deja de poder aplicarse."""
+        return s.auditado(
+            "descartar_plan", "DESCARTAR PLAN",
+            lambda: {"plan_id": s.almacen.descartar(plan_id).id, "estado": "descartado"},
+            detalle={"motivo": motivo} if motivo else None,
+        )
 
     # ======================================================== PLANIFICACIÓN
     @servidor.tool(annotations=_PLANIFICA)
@@ -296,6 +326,36 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         return s.auditado(
             "planificar_carga", "PLAN CARGA",
             lambda: s.planificador.carga(tabla, fichero, modo).como_dict(),
+        )
+
+    @servidor.tool(annotations=_PLANIFICA)
+    def planificar_carga_transformada(
+        tabla: str,
+        fichero: str,
+        renombrar: dict[str, str] | None = None,
+        dividir: dict[str, int] | None = None,
+        quitar_duplicados_exactos: bool = False,
+        modo: str = "anadir",
+    ) -> dict[str, Any]:
+        """Plan para cargar una entrega defectuosa REPARÁNDOLA al leerla, sin modificar el
+        fichero: `renombrar` {columna_fichero: nombre_esperado}, `dividir`
+        {columna_fichero: 10|100|1000} (cambio de unidad, p. ej. céntimos → euros) y
+        `quitar_duplicados_exactos` (filas idénticas en todas las columnas). El plan
+        muestra el efecto cuantificado de cada transformación y pasa por las mismas
+        comprobaciones que planificar_carga. Úsalo solo con la conformidad de la persona."""
+
+        def accion() -> dict[str, Any]:
+            transformacion = Transformacion.crear(renombrar, dividir, quitar_duplicados_exactos)
+            return s.planificador.carga(tabla, fichero, modo, transformacion).como_dict()
+
+        return s.auditado(
+            "planificar_carga_transformada", "PLAN CARGA TRANSFORMADA", accion,
+            detalle={
+                "fichero": fichero,
+                "renombrar": renombrar or {},
+                "dividir": dividir or {},
+                "quitar_duplicados_exactos": quitar_duplicados_exactos,
+            },
         )
 
     @servidor.tool(annotations=_PLANIFICA)

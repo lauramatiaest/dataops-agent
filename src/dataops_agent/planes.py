@@ -22,6 +22,8 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from dataops_agent.transformaciones import Transformacion
+
 
 class TipoPlan(StrEnum):
     CREAR_TABLA = "crear_tabla"
@@ -36,6 +38,7 @@ class EstadoPlan(StrEnum):
     PENDIENTE = "pendiente"
     APLICADO = "aplicado"
     FALLIDO = "fallido"
+    DESCARTADO = "descartado"
 
 
 class TipoPaso(StrEnum):
@@ -57,6 +60,8 @@ class Paso:
     filas_esperadas: int | None = None
     # SHA-256 del fichero al planificar: si cambia antes de aplicar, no se carga.
     huella_fichero: str | None = None
+    # Reparación declarativa aplicada al leer el fichero (el fichero no se modifica).
+    transformacion: Transformacion | None = None
 
 
 @dataclass
@@ -155,6 +160,25 @@ class AlmacenPlanes:
             raise ErrorPlan(f"El plan {plan_id} ha sido alterado; no se aplica.")
         if plan.bloqueos:
             raise ErrorPlan(f"El plan {plan_id} tiene bloqueos: {'; '.join(plan.bloqueos)}")
+        return plan
+
+    def obtener(self, plan_id: str) -> Plan:
+        """Devuelve el plan en cualquier estado (p. ej. para validar una carga aplicada)."""
+        with self._cerrojo:
+            plan = self._planes.get(plan_id)
+        if plan is None:
+            raise ErrorPlan(f"No existe el plan {plan_id} en esta sesión.")
+        return plan
+
+    def descartar(self, plan_id: str) -> Plan:
+        """Retira un plan pendiente (p. ej. sustituido por otro): ya no podrá aplicarse."""
+        with self._cerrojo:
+            plan = self._planes.get(plan_id)
+            if plan is None:
+                raise ErrorPlan(f"No existe el plan {plan_id} en esta sesión.")
+            if plan.estado is not EstadoPlan.PENDIENTE:
+                raise ErrorPlan(f"El plan {plan_id} está en estado '{plan.estado}'.")
+            plan.estado = EstadoPlan.DESCARTADO
         return plan
 
     def marcar(self, plan_id: str, estado: EstadoPlan) -> None:

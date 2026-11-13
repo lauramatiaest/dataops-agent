@@ -93,3 +93,16 @@ def test_pendientes(almacen: AlmacenPlanes) -> None:
     a, b = almacen.guardar(_plan()), almacen.guardar(_plan())
     almacen.marcar(a.id, EstadoPlan.APLICADO)
     assert almacen.pendientes() == [b]
+
+
+def test_descartar_plan(almacen: AlmacenPlanes) -> None:
+    plan = almacen.guardar(_plan())
+    assert almacen.descartar(plan.id).estado is EstadoPlan.DESCARTADO
+    assert plan not in almacen.pendientes()
+    with pytest.raises(ErrorPlan, match="descartado"):
+        almacen.obtener_para_aplicar(plan.id)
+    with pytest.raises(ErrorPlan):
+        almacen.descartar(plan.id)
+    assert almacen.obtener(plan.id) is plan
+    with pytest.raises(ErrorPlan, match="No existe"):
+        almacen.obtener("plan_inexistente")

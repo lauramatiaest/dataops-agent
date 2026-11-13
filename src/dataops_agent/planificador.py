@@ -14,6 +14,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from datetime import date, datetime
+from typing import Any
 
 import psycopg
 from psycopg import sql
@@ -26,6 +27,7 @@ from dataops_agent.ficheros import FicheroTabular, abrir, huella, nombre_sql
 from dataops_agent.perfilado import perfilar
 from dataops_agent.planes import AlmacenPlanes, Paso, Plan, TipoPaso, TipoPlan
 from dataops_agent.seguridad import Modo, ValidadorSQL
+from dataops_agent.transformaciones import OrigenTransformado, Transformacion
 from dataops_agent.validaciones import comprobar_unicidad, huerfanos
 
 # Tipos de columna admitidos al crear tablas (lista cerrada).
@@ -143,17 +145,33 @@ class Planificador:
         )
 
     # ================================================================= carga
-    def carga(self, tabla: str, fichero: str, modo: str = "anadir") -> Plan:
+    def carga(
+        self,
+        tabla: str,
+        fichero: str,
+        modo: str = "anadir",
+        transformacion: Transformacion | None = None,
+    ) -> Plan:
         """Plan para cargar un fichero en una tabla existente.
 
         ``modo``: 'anadir' (inserta) o 'reemplazar' (vacía la tabla antes: DESTRUCTIVO).
+        ``transformacion``: reparación declarativa (renombrar, dividir, deduplicar) que
+        se aplica al leer el fichero; el fichero entregado no se modifica.
         """
         validar_identificador(tabla, "tabla")
         if modo not in {"anadir", "reemplazar"}:
             raise ErrorPlanificacion("modo debe ser 'anadir' o 'reemplazar'.")
-        origen = abrir(self.cfg.dir_datos, fichero)
         bloqueos: list[str] = []
         advertencias: list[str] = []
+        efecto: dict[str, Any] | None = None
+        origen: FicheroTabular | OrigenTransformado = abrir(self.cfg.dir_datos, fichero)
+        if transformacion is not None:
+            origen = OrigenTransformado(origen, transformacion)
+            efecto = origen.efecto()
+            advertencias.append(
+                "Carga con transformación: el fichero original no se modifica; la "
+                "transformación queda en el plan y en la auditoría."
+            )
 
         with self.gestor.lectura() as conn:
             if catalogo.tipo_objeto(conn, self.esquema, tabla) != "tabla":
@@ -251,13 +269,17 @@ class Planificador:
                 columnas=tuple(mapeo),
                 filas_esperadas=n_filas,
                 huella_fichero=huella(origen.ruta),
+                transformacion=transformacion,
             )
         )
         filas_finales = n_filas + (0 if modo == "reemplazar" else filas_actuales)
         return self._guardar(
             Plan(
                 tipo=TipoPlan.CARGA,
-                resumen=f"Cargar {origen.ruta.name} en {self.esquema}.{tabla} ({modo})",
+                resumen=(
+                    f"Cargar {origen.ruta.name} en {self.esquema}.{tabla} ({modo}"
+                    f"{', con transformación' if transformacion else ''})"
+                ),
                 pasos=pasos,
                 impacto={
                     "filas_a_insertar": n_filas,
@@ -266,6 +288,7 @@ class Planificador:
                     "filas_tras_aplicar": filas_finales,
                     "columnas_cargadas": [d for _, d in mapeo],
                     "filas_sin_padre": huerfanos_carga,
+                    **({"transformacion": efecto} if efecto else {}),
                 },
                 destructivo=modo == "reemplazar" and filas_actuales > 0,
                 bloqueos=bloqueos,
@@ -594,7 +617,7 @@ def _valor_valido(valor: str, tipo: str) -> bool:
 
 
 def _revisar_filas(
-    origen: FicheroTabular,
+    origen: FicheroTabular | OrigenTransformado,
     mapeo: list[tuple[str, str]],
     tipos: dict[str, str],
     clave: list[str],
@@ -649,7 +672,9 @@ def _contar_existentes(
     return int(fila[0]) if fila else 0
 
 
-def _valores_columna(origen: FicheroTabular, columna_original: str) -> Counter[str]:
+def _valores_columna(
+    origen: FicheroTabular | OrigenTransformado, columna_original: str
+) -> Counter[str]:
     """Recuento de cada valor no nulo de una columna del fichero."""
     return Counter(
         valor for fila in origen.filas() if (valor := fila.get(columna_original)) is not None

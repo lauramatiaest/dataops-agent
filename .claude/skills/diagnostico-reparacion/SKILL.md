@@ -1,53 +1,54 @@
 ---
 name: diagnostico-reparacion
-description: BORRADOR (ampliación "bombero"). Diagnostica datos estropeados en una nueva entrega o tras una carga (duplicados, columnas renombradas, cambios de unidad o formato), localiza el origen y propone un arreglo verificado. Úsala cuando una carga se bloquee o una validación falle en datos que antes funcionaban.
+description: Diagnostica y repara entregas de datos defectuosas (filas duplicadas, columnas renombradas, cambios de unidad como céntimos en lugar de euros, filas sin padre). Úsala SIEMPRE que un plan de carga salga bloqueado por defectos de los datos, cuando una validación falle en datos que antes funcionaban o cuando la persona hable de una "entrega estropeada".
 ---
 
-# Diagnóstico y reparación ("bombero") — BORRADOR
-
-> Estado: borrador de la ampliación. El procedimiento está definido y usa herramientas
-> que ya existen; falta afinarlo con pruebas (tareas `eval/tareas/1[6-9]_*.yaml`) y,
-> si hace falta, una herramienta de linaje (`trazar_linaje`) que hoy no existe.
+# Diagnóstico y reparación ("bombero")
 
 ## Principios
 
-- Diagnóstico antes que arreglo: cada síntoma se demuestra con una cifra.
-- El origen es la verdad hasta que se demuestre lo contrario: no "arregles" datos
-  buenos para que cuadren con una carga mala.
-- Todo arreglo es un plan revisable; si borra o reemplaza, es destructivo.
-- Un arreglo solo está terminado cuando la validación pasa.
+- **Diagnóstico antes que arreglo:** cada síntoma se demuestra con una cifra.
+- **El origen es la verdad:** no "arregles" datos buenos para que cuadren con una carga
+  mala. El fichero entregado **no se modifica nunca**.
+- **Nada fuera del perímetro:** no crees ni edites ficheros con la shell ni con
+  herramientas de ficheros. La reparación se declara en el plan con
+  `planificar_carga_transformada`, que queda en la huella del plan y en la auditoría.
+- **Un arreglo solo está terminado cuando la validación pasa.**
 
 ## Procedimiento
 
 1. **Síntoma.** Qué falla y dónde: plan de carga bloqueado, validación que no cuadra,
    dashboard con cifras raras. Anota la cifra.
 2. **Comparar con la referencia.** `perfilar_fichero` de la nueva entrega frente a la
-   tabla destino (`listar_esquema`) y, si existe, una entrega anterior buena.
+   tabla destino (`listar_esquema`) y, si existe, una entrega anterior buena o el
+   `manifiesto.json` de la entrega.
 3. **Clasificar el defecto** (lista de comprobación):
-   - *Duplicados*: `filas_duplicadas > 0` en el perfil o "clave repetida" en el plan.
-   - *Columna renombrada*: el plan de carga dice "¿Quizá se renombró X?".
+   - *Duplicados exactos*: `filas_duplicadas > 0` en el perfil o "clave repetida" en el plan.
+   - *Columna renombrada*: el plan dice "¿Quizá se renombró X?".
    - *Cambio de unidad*: mín/máx/suma ~×100 (céntimos) frente a la referencia; precios
-     enteros donde antes había decimales.
-   - *Cambio de formato*: tipo inferido distinto (fecha como texto, coma decimal).
-   - *Huérfanos*: `comprobar_relacion` > 0 tras cargar.
-4. **Localizar el origen (linaje).** Hoy, manual: qué fichero alimenta la tabla
-   (auditoría con `ver_auditoria`), qué vistas usan la tabla (`impacto.dependientes` de
-   `planificar_vista`/`planificar_borrado`) y qué dashboards usan esas vistas.
-5. **Proponer el arreglo** con evidencia y opciones; la persona elige. Arreglos
-   posibles con las herramientas actuales:
-   - Renombrado o unidad: pedir al proveedor el fichero corregido, o preparar una copia
-     corregida en `datos/` (la persona decide) y cargarla con plan.
-   - Duplicados exactos: cargar la entrega deduplicada; si ya se cargó, plan de borrado
-     de filas (destructivo, con aprobación).
-   - Vista de contención: `v_*_limpia` con `DISTINCT` o conversión `/ 100` mientras se
-     corrige el origen (documentarlo en la descripción de la vista).
-6. **Verificar** con `validar_carga` frente a los valores esperados (si existe
-   `manifiesto.json` en la entrega, sus cifras `correcto`) y resumir: defecto, causa,
-   arreglo aplicado, validación.
+     enteros donde antes había decimales. Demuéstralo con 2 ejemplos concretos.
+   - *Filas sin padre*: el plan indica valores que no existen en la tabla padre →
+     carga primero la entrega padre (que puede necesitar su propia reparación).
+   - *Cambio de formato* (fechas como texto, coma decimal): **no** se repara con
+     transformaciones; pide el fichero corregido o usa una vista de contención.
+4. **Proponer el arreglo** con la evidencia y deja que la persona decida. Opciones:
+   - Pedir al origen el fichero corregido (lo más limpio).
+   - **Reparar al cargar** con `planificar_carga_transformada(tabla, fichero,
+     renombrar={...}, dividir={columna: 100}, quitar_duplicados_exactos=true)`.
+     Solo con la conformidad expresa de la persona.
+   - Vista de contención (`v_*_limpia`) mientras se corrige el origen.
+5. **Enseñar el plan transformado**: el `impacto.transformacion.descripcion` cuantifica
+   cada cambio (filas quitadas, rango antes/después). Resume en lenguaje claro y aplica
+   con `aplicar_plan`. Retira con `descartar_plan` los planes bloqueados que sustituyes.
+6. **Verificar** con `validar_carga(..., plan_carga=<id del plan transformado>)`, que
+   compara la tabla con el origen tal y como se cargó, y contrasta las cifras con el
+   `correcto` del `manifiesto.json` si existe (filas únicas, suma de importes).
+7. **Resumir**: defecto, evidencia, arreglo aplicado (plan_id), validación y qué
+   debería corregir el origen para la próxima entrega.
 
-## Pendiente (para la memoria)
+## Límites y trabajo futuro
 
-- Herramienta `trazar_linaje(objeto)` basada en `pg_depend` + auditoría + preguntas de BI.
-- Herramienta `planificar_transformacion_carga` para convertir unidades/renombrar sin
-  editar ficheros a mano.
-- Tareas de evaluación específicas y criterio de éxito.
+- Solo hay tres transformaciones (renombrar, dividir por 10/100/1000 y quitar
+  duplicados exactos); no hay expresiones libres a propósito.
+- Linaje automático (`trazar_linaje`: qué dashboards dependen de una tabla) pendiente;
+  hoy se reconstruye a mano con `ver_auditoria` y los dependientes de los planes.

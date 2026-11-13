@@ -24,9 +24,10 @@ from psycopg import sql
 from dataops_agent import catalogo
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config, validar_identificador
-from dataops_agent.ficheros import abrir, huella
+from dataops_agent.ficheros import FicheroTabular, abrir, huella
 from dataops_agent.planes import AlmacenPlanes, EstadoPlan, Paso, Plan, TipoPaso
 from dataops_agent.seguridad import Modo, ValidadorSQL
+from dataops_agent.transformaciones import OrigenTransformado
 
 
 class RequiereConfirmacion(PermissionError):
@@ -87,11 +88,14 @@ class Aplicador:
         """Ejecuta un paso de carga con COPY y verifica el recuento en la transacción."""
         if paso.tabla is None or paso.fichero is None or not paso.columnas:
             raise ErrorVerificacion("Paso de carga incompleto.")
-        fichero = abrir(self.cfg.dir_datos, paso.fichero)
+        fichero: FicheroTabular | OrigenTransformado = abrir(self.cfg.dir_datos, paso.fichero)
         if paso.huella_fichero and huella(fichero.ruta) != paso.huella_fichero:
             raise ErrorVerificacion(
                 f"El fichero {fichero.ruta.name} ha cambiado desde que se planificó la carga."
             )
+        if paso.transformacion is not None:
+            # La misma transformación que se revisó en el plan (forma parte de su huella).
+            fichero = OrigenTransformado(fichero, paso.transformacion)
         tabla = validar_identificador(paso.tabla, "tabla")
         destinos = [validar_identificador(d, "columna") for _, d in paso.columnas]
         origenes = [o for o, _ in paso.columnas]

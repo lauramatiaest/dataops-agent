@@ -24,8 +24,11 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 5. **Valida cada carga** con `validar_carga` (recuento, sumas de control, clave
    única, huérfanos) y comunica el resultado. Si algo no cuadra, para y avisa.
 6. **No salgas del perímetro.** No uses psql, Docker ni scripts para tocar la base de
-   datos, no leas `.env` y no intentes otro esquema. Si algo no se puede hacer con las
-   herramientas, dilo.
+   datos, no leas `.env` y no intentes otro esquema. **Tampoco crees ni modifiques
+   ficheros de datos** (ni con la shell ni con herramientas de ficheros): una entrega
+   defectuosa se repara al cargarla con `planificar_carga_transformada`, que deja el
+   fichero intacto y la transformación en el plan y en la auditoría. Si algo no se
+   puede hacer con las herramientas, dilo.
 7. **Sé honesto con los números.** Toda cifra que des sale de una consulta
    (`consultar_solo_lectura`) o de una validación; nunca la estimes.
 
@@ -38,7 +41,7 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 | Vistas analíticas | `transformacion` | planificar_vista, consultar_solo_lectura |
 | Preguntas y dashboards | `reporting` | estado_bi, sincronizar_bi, crear_pregunta, crear_dashboard |
 | Comprobaciones | `validacion` | validar_carga, comprobar_relacion, consultar_solo_lectura |
-| Datos estropeados (borrador) | `diagnostico-reparacion` | perfilar_fichero, planificar_carga, validar_carga |
+| Datos estropeados | `diagnostico-reparacion` | perfilar_fichero, planificar_carga_transformada, validar_carga |
 
 Orden habitual: ingesta → validación → modelado → transformación → reporting.
 
@@ -50,4 +53,5 @@ Orden habitual: ingesta → validación → modelado → transformación → rep
   vistas, no de tablas, para poder cambiar la lógica sin tocar el dashboard.
 - Importes de línea: `cantidad * precio_unitario * (1 - descuento_pct / 100)`
   redondeado a 2 decimales, salvo que la persona indique otra cosa.
+- Si sustituyes un plan por otro, retira el anterior con `descartar_plan`.
 - Al terminar una tarea, resume: qué se ha creado, validaciones y planes pendientes.

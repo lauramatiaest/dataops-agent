@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -11,9 +12,12 @@ import pytest
 from dataops_agent.aplicador import Aplicador, ErrorVerificacion, RequiereConfirmacion
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config
+from dataops_agent.ficheros import abrir
 from dataops_agent.planes import AlmacenPlanes, ErrorPlan
 from dataops_agent.planificador import ColumnaDef, ErrorPlanificacion, Planificador
 from dataops_agent.seguridad import SQLRechazado, ValidadorSQL
+from dataops_agent.transformaciones import OrigenTransformado, Transformacion
+from dataops_agent.validaciones import validar_carga
 
 CLIENTES = "cliente_id,nombre,ciudad\n1,Ana,Madrid\n2,Luis,Sevilla\n3,Eva,Madrid\n"
 PEDIDOS = "pedido_id,cliente_id,importe,estado\n10,1,100.50,entregado\n11,1,20.00,cancelado\n12,2,5.25,entregado\n"
@@ -261,6 +265,45 @@ def test_carga_con_valores_sin_padre_bloqueada(cfg: Config, piezas) -> None:
     ok = plan.carga("pedidos", "pedidos_ok.csv")
     assert ok.aplicable, ok.bloqueos
     assert ok.impacto["filas_sin_padre"] == {}
+
+
+def test_carga_transformada_repara_sin_tocar_el_fichero(cfg: Config, piezas, conn_admin) -> None:
+    """M-15: entrega con duplicados, columna renombrada y céntimos, reparada en el plan."""
+    plan, apl = piezas
+    _cargar_base(cfg, plan, apl)
+    _fichero(cfg, "lineas.csv", "linea_id,pedido_id,precio_unitario\n1,10,28.25\n")
+    apl.aplicar(plan.tabla("lineas", desde_fichero="lineas.csv", clave_primaria=["linea_id"]).id)
+    apl.aplicar(plan.carga("lineas", "lineas.csv").id)
+    roto = "linea_id,pedido_id,precio\n2,10,1050\n2,10,1050\n3,12,499\n"
+    _fichero(cfg, "lineas_rotas.csv", roto)
+
+    # Sin transformación: el plan se bloquea (columna renombrada y clave repetida).
+    bloqueado = plan.carga("lineas", "lineas_rotas.csv")
+    assert any("precio" in b for b in bloqueado.bloqueos)
+    assert any("se repite" in b for b in bloqueado.bloqueos)
+
+    t = Transformacion.crear({"precio": "precio_unitario"}, {"precio": 100}, deduplicar=True)
+    p = plan.carga("lineas", "lineas_rotas.csv", transformacion=t)
+    assert p.aplicable, p.bloqueos
+    assert p.impacto["filas_a_insertar"] == 2
+    assert p.impacto["transformacion"]["duplicadas_exactas"] == 1
+    apl.aplicar(p.id)
+    assert conn_admin.execute(
+        "SELECT count(*), sum(precio_unitario) FROM proyecto_test.lineas"
+    ).fetchone() == (3, Decimal("43.74"))
+    # El fichero entregado sigue intacto.
+    assert (cfg.dir_datos / "lineas_rotas.csv").read_text(encoding="utf-8") == roto
+
+    # La validación compara con el origen tal y como se cargó (transformado).
+    origenes = [
+        abrir(cfg.dir_datos, "lineas.csv"),
+        OrigenTransformado(abrir(cfg.dir_datos, "lineas_rotas.csv"), t),
+    ]
+    with psycopg.connect(cfg.dsn("lector")) as conn:
+        comprobaciones = validar_carga(
+            conn, cfg.esquema, "lineas", origenes, ["linea_id"], ["precio_unitario"]
+        )
+    assert all(c.ok for c in comprobaciones), [c.como_dict() for c in comprobaciones]
 
 
 def test_fallo_en_aplicacion_deshace_todo(cfg: Config, piezas, conn_admin) -> None:
