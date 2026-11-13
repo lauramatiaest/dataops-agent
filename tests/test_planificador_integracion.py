@@ -12,6 +12,7 @@ import pytest
 from dataops_agent.aplicador import Aplicador, ErrorVerificacion, RequiereConfirmacion
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config
+from dataops_agent.documentacion import describir_modelo, diccionario_markdown
 from dataops_agent.ficheros import abrir
 from dataops_agent.planes import AlmacenPlanes, ErrorPlan
 from dataops_agent.planificador import ColumnaDef, ErrorPlanificacion, Planificador
@@ -304,6 +305,48 @@ def test_carga_transformada_repara_sin_tocar_el_fichero(cfg: Config, piezas, con
             conn, cfg.esquema, "lineas", origenes, ["linea_id"], ["precio_unitario"]
         )
     assert all(c.ok for c in comprobaciones), [c.como_dict() for c in comprobaciones]
+
+
+def test_documentacion_guarda_comentarios_sin_inyeccion(cfg: Config, piezas, conn_admin) -> None:
+    """C: las descripciones se guardan como COMMENT ON construido por el servidor; un
+    texto con apariencia de SQL se guarda literal y no se ejecuta."""
+    plan, apl = piezas
+    _cargar_base(cfg, plan, apl)
+    malicioso = "Ciudad'; DROP TABLE proyecto_test.pedidos; --"
+    p = plan.documentacion({
+        "clientes": {"descripcion": "Un cliente por fila.", "columnas": {"ciudad": malicioso}},
+    })
+    assert p.aplicable and not p.destructivo
+    assert p.impacto["descripciones"] == 2
+    apl.aplicar(p.id)
+    assert conn_admin.execute(
+        "SELECT obj_description('proyecto_test.clientes'::regclass, 'pg_class')"
+    ).fetchone()[0] == "Un cliente por fila."
+    assert conn_admin.execute(
+        "SELECT col_description('proyecto_test.clientes'::regclass, 3)"
+    ).fetchone()[0] == malicioso
+    assert conn_admin.execute("SELECT to_regclass('proyecto_test.pedidos')").fetchone()[0]
+
+    # Repetir lo mismo no genera plan; cambiarlo avisa de la sustitución.
+    with pytest.raises(ErrorPlanificacion, match="ya estaban"):
+        plan.documentacion({"clientes": {"descripcion": "Un cliente por fila."}})
+    cambio = plan.documentacion({"clientes": {"descripcion": "Clientes registrados."}})
+    assert cambio.impacto["reemplaza"][0]["antes"] == "Un cliente por fila."
+    assert cambio.advertencias
+    with pytest.raises(ErrorPlanificacion, match="no tiene la columna"):
+        plan.documentacion({"clientes": {"columnas": {"no_existe": "x"}}})
+    with pytest.raises(ErrorPlanificacion, match="No existe"):
+        plan.documentacion({"inexistente": {"descripcion": "x"}})
+
+    # El modelo y el diccionario reflejan las descripciones y lo que falta.
+    with psycopg.connect(cfg.dsn("lector")) as conn:
+        modelo = describir_modelo(conn, cfg.esquema)
+    clientes = next(o for o in modelo["objetos"] if o["nombre"] == "clientes")
+    assert clientes["descripcion"] == "Un cliente por fila."
+    assert "pedidos" in modelo["pendiente_de_documentar"]
+    md = diccionario_markdown(modelo)
+    assert "erDiagram" in md
+    assert "Un cliente por fila." in md
 
 
 def test_fallo_en_aplicacion_deshace_todo(cfg: Config, piezas, conn_admin) -> None:

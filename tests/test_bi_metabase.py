@@ -66,6 +66,12 @@ class MetabaseSimulado:
             return httpx.Response(200, json=nueva)
         if ruta.endswith("/sync_schema"):
             return httpx.Response(200, json={"status": "ok"})
+        if ruta == "/api/card" and metodo == "GET":
+            return httpx.Response(200, json=[{"id": i, **c} for i, c in self.cards.items()])
+        if ruta == "/api/dashboard" and metodo == "GET":
+            return httpx.Response(200, json=[
+                {"id": d["id"], "name": d.get("name")} for d in self.dashboards.values()
+            ])
         if ruta == "/api/card" and metodo == "POST":
             if extra := set(cuerpo) - CLAVES_CARD:
                 return httpx.Response(400, json={"errors": {k: "clave no permitida" for k in extra}})
@@ -196,3 +202,19 @@ def test_estado_y_errores_http(cfg_mb: Config, simulado: MetabaseSimulado) -> No
 def test_visualizacion_no_valida() -> None:
     with pytest.raises(ValueError, match="Visualización"):
         Pregunta("p", "SELECT 1", "radar")
+
+
+def test_uso_de_objetos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    """Documentación: qué preguntas y dashboards leen de cada vista."""
+    mb = _adaptador(cfg_mb, simulado)
+    ventas = mb.crear_pregunta(
+        Pregunta("Ventas", "SELECT mes, importe FROM v_ventas", "lineas")
+    )
+    mb.crear_pregunta(Pregunta("Otra", "SELECT * FROM v_ventas_2", "tabla"))
+    mb.crear_dashboard("Panel", [ventas.id])
+    uso = mb.uso_de_objetos(["v_ventas", "v_ventas_2", "clientes"])
+    assert [p["nombre"] for p in uso["v_ventas"]["preguntas"]] == ["Ventas"]
+    assert [d["nombre"] for d in uso["v_ventas"]["dashboards"]] == ["Panel"]
+    assert [p["nombre"] for p in uso["v_ventas_2"]["preguntas"]] == ["Otra"]
+    assert uso["v_ventas_2"]["dashboards"] == []
+    assert "clientes" not in uso

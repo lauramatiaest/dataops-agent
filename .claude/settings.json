@@ -16,6 +16,9 @@
       "mcp__dataops__planificar_vista",
       "mcp__dataops__planificar_borrado",
       "mcp__dataops__descartar_plan",
+      "mcp__dataops__planificar_documentacion",
+      "mcp__dataops__generar_diccionario",
+      "mcp__dataops__describir_modelo",
       "mcp__dataops__planificar_carga_transformada",
       "mcp__dataops__estado_bi"
     ],

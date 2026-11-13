@@ -42,8 +42,10 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 | Preguntas y dashboards | `reporting` | estado_bi, sincronizar_bi, crear_pregunta, crear_dashboard |
 | Comprobaciones | `validacion` | validar_carga, comprobar_relacion, consultar_solo_lectura |
 | Datos estropeados | `diagnostico-reparacion` | perfilar_fichero, planificar_carga_transformada, validar_carga |
+| Documentar el modelo | `documentacion` | describir_modelo, planificar_documentacion, generar_diccionario |
 
-Orden habitual: ingesta → validación → modelado → transformación → reporting.
+Orden habitual: ingesta → validación → modelado → transformación → reporting →
+documentación.
 
 ## Convenciones
 

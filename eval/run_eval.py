@@ -70,7 +70,8 @@ HERRAMIENTAS_B = [
         "comprobar_relacion", "validar_carga", "ver_auditoria", "listar_planes_pendientes",
         "planificar_tabla", "planificar_carga", "planificar_clave", "planificar_relacion",
         "planificar_vista", "planificar_borrado", "planificar_carga_transformada",
-        "descartar_plan", "aplicar_plan", "estado_bi",
+        "descartar_plan", "planificar_documentacion", "describir_modelo",
+        "generar_diccionario", "aplicar_plan", "estado_bi",
         "sincronizar_bi", "crear_pregunta", "actualizar_pregunta", "crear_dashboard",
         "anadir_a_dashboard",
     )

@@ -34,6 +34,9 @@ servidor MCP propio que solo ofrece operaciones seguras:
 - **Audita** cada llamada (quién, qué, cuándo, resultado, plan) en una tabla de solo
   anexado y en JSONL.
 - **Publica** preguntas y dashboards en Metabase mediante un adaptador intercambiable.
+- **Documenta** el modelo: descripciones de negocio guardadas como comentarios en
+  PostgreSQL (con plan), linaje desde la auditoría y diccionario de datos en Markdown
+  con diagrama entidad-relación (`docs/modelo/diccionario.md`).
 
 El comportamiento del agente (cuándo perfilar, cuándo preguntar, cómo validar) vive en
 `CLAUDE.md` y en **skills** (`.claude/skills/*/SKILL.md`), de modo que se puede ampliar

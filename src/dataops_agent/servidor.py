@@ -10,7 +10,8 @@ Herramientas (agrupadas por riesgo):
   comprobar_relacion, validar_carga, ver_auditoria, listar_planes_pendientes.
 * Planificación (no modifican nada): planificar_tabla, planificar_carga,
   planificar_carga_transformada, planificar_clave, planificar_relacion,
-  planificar_vista, planificar_borrado, descartar_plan.
+  planificar_vista, planificar_borrado, planificar_documentacion, descartar_plan.
+* Documentación (lectura): describir_modelo, generar_diccionario.
 * Escritura: aplicar_plan (solo planes NO destructivos) y aplicar_plan_destructivo
   (Claude Code pide siempre aprobación humana por la regla "ask" de
   .claude/settings.json).
@@ -35,7 +36,7 @@ import psycopg
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from dataops_agent import catalogo, validaciones
+from dataops_agent import catalogo, documentacion, validaciones
 from dataops_agent.aplicador import Aplicador, RequiereConfirmacion
 from dataops_agent.auditoria import EventoAuditoria, RegistroAuditoria, Resultado
 from dataops_agent.bi import BIAdapter, ErrorBI, MetabaseAdapter, Pregunta
@@ -178,6 +179,44 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
             lambda: perfilar(abrir(cfg.dir_datos, ruta)).como_dict(),
             detalle={"ruta": ruta},
         )
+
+    def _modelo(incluir_bi: bool) -> dict[str, Any]:
+        uso = None
+        if incluir_bi and s.bi is not None:
+            with s.gestor.lectura() as conn:
+                nombres = list(catalogo.objetos(conn, cfg.esquema))
+            try:
+                uso = s.bi.uso_de_objetos(nombres)
+            except Exception:  # BI caído o sin soporte: se documenta igualmente
+                uso = None
+        with s.gestor.lectura() as conn:
+            return documentacion.describir_modelo(
+                conn, cfg.esquema, s.auditoria.leer_jsonl(), uso
+            )
+
+    @servidor.tool(annotations=_LECTURA)
+    def describir_modelo(incluir_bi: bool = True) -> dict[str, Any]:
+        """Descripción completa del modelo para documentarlo: por objeto, columnas, tipos,
+        claves, relaciones, descripciones ya guardadas, definición y dependencias de las
+        vistas, linaje de cargas (fichero y plan, desde la auditoría) y, si `incluir_bi`,
+        las preguntas y dashboards de BI que lo usan. Lista lo pendiente de documentar."""
+        return s.auditado("describir_modelo", "DESCRIBIR MODELO", lambda: _modelo(incluir_bi))
+
+    @servidor.tool(annotations=_LECTURA)
+    def generar_diccionario(incluir_bi: bool = True) -> dict[str, Any]:
+        """Diccionario de datos del modelo en Markdown (con diagrama entidad-relación en
+        Mermaid), generado a partir de los hechos del catálogo y de las descripciones
+        guardadas. Guárdalo tal cual en docs/modelo/diccionario.md."""
+
+        def accion() -> dict[str, Any]:
+            modelo = _modelo(incluir_bi)
+            return {
+                "markdown": documentacion.diccionario_markdown(modelo),
+                "ruta_sugerida": "docs/modelo/diccionario.md",
+                "pendiente_de_documentar": modelo["pendiente_de_documentar"],
+            }
+
+        return s.auditado("generar_diccionario", "GENERAR DICCIONARIO", accion)
 
     @servidor.tool(annotations=_LECTURA)
     def listar_esquema() -> dict[str, Any]:
@@ -400,6 +439,19 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         )
 
     # ============================================================ ESCRITURA
+    @servidor.tool(annotations=_PLANIFICA)
+    def planificar_documentacion(descripciones: dict[str, Any]) -> dict[str, Any]:
+        """Plan para guardar descripciones de negocio como comentarios del modelo
+        (COMMENT ON TABLE/VIEW/COLUMN), visibles para cualquier herramienta que lea el
+        catálogo. `descripciones`: {objeto: {"descripcion": "...", "columnas":
+        {columna: "..."}}} (máx. 500 caracteres cada una). No es destructivo; si sustituye
+        descripciones existentes, el plan lo enseña. Aplica con aplicar_plan."""
+        return s.auditado(
+            "planificar_documentacion", "PLAN DOCUMENTACION",
+            lambda: s.planificador.documentacion(descripciones).como_dict(),
+            detalle={"objetos": sorted(descripciones)},
+        )
+
     @servidor.tool(annotations=_ESCRIBE)
     def aplicar_plan(plan_id: str) -> dict[str, Any]:
         """Aplica un plan NO destructivo ya revisado (una transacción; se deshace entero

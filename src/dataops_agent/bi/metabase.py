@@ -27,6 +27,7 @@ aceptando y normaliza internamente a MBQL 5.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -219,6 +220,44 @@ class MetabaseAdapter(BIAdapter):
         )
 
     # ---------------------------------------------------- configuración inicial
+    def uso_de_objetos(self, nombres: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """Preguntas nativas de la conexión del proyecto cuyo SQL cita cada objeto, y los
+        dashboards que contienen esas preguntas."""
+        bd = self.id_base_datos()
+        # El nombre suelto o calificado (esquema.nombre), sin confundir v_x con v_x_2.
+        patrones = {
+            n: re.compile(rf"(?<![\w.]){re.escape(n)}\b|\.{re.escape(n)}\b") for n in nombres
+        }
+        uso: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        pregunta_de: dict[int, list[str]] = {}
+        for card in self._peticion("GET", "/api/card") or []:
+            consulta = card.get("dataset_query") or {}
+            if consulta.get("database") != bd or card.get("archived"):
+                continue
+            texto = str((consulta.get("native") or {}).get("query") or "")
+            for nombre, patron in patrones.items():
+                if patron.search(texto):
+                    ref = {"id": card["id"], "nombre": card.get("name", ""),
+                           "url": f"{self.publica}/question/{card['id']}"}
+                    uso.setdefault(nombre, {"preguntas": [], "dashboards": []})
+                    uso[nombre]["preguntas"].append(ref)
+                    pregunta_de.setdefault(int(card["id"]), []).append(nombre)
+        if pregunta_de:
+            for resumen in self._peticion("GET", "/api/dashboard") or []:
+                if resumen.get("archived"):
+                    continue
+                tablero = self._peticion("GET", f"/api/dashboard/{resumen['id']}")
+                ids = {t.get("card_id") for t in tablero.get("dashcards", [])}
+                for card_id in ids & set(pregunta_de):
+                    for nombre in pregunta_de[card_id]:
+                        dashboards = uso[nombre]["dashboards"]
+                        if all(d["id"] != tablero["id"] for d in dashboards):
+                            dashboards.append({
+                                "id": tablero["id"], "nombre": tablero.get("name", ""),
+                                "url": f"{self.publica}/dashboard/{tablero['id']}",
+                            })
+        return uso
+
     def configurar_regional(self, idioma: str = "es", separadores: str = ",.") -> None:
         """Idioma del sitio y separadores numéricos (",." = coma decimal y punto de miles).
 

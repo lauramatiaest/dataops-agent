@@ -77,3 +77,10 @@ class BIAdapter(ABC):
 
     @abstractmethod
     def anadir_a_dashboard(self, dashboard_id: int, pregunta_ids: list[int]) -> RefBI: ...
+
+    def uso_de_objetos(self, nombres: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """Qué preguntas y dashboards usan cada objeto (para la documentación).
+
+        Por defecto no se sabe: los adaptadores que puedan, lo implementan.
+        """
+        raise ErrorBI(f"El adaptador {self.nombre} no informa del uso de los objetos.")

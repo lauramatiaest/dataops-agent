@@ -44,10 +44,10 @@ def _frontmatter(ruta: Path) -> tuple[dict[str, str], str]:
     return yaml.safe_load(cabecera), cuerpo
 
 
-def test_hay_seis_skills() -> None:
+def test_skills_esperadas() -> None:
     nombres = {p.parent.name for p in SKILLS}
     assert nombres == {"ingesta", "modelado", "transformacion", "reporting", "validacion",
-                       "diagnostico-reparacion"}
+                       "diagnostico-reparacion", "documentacion"}
 
 
 @pytest.mark.parametrize("ruta", SKILLS, ids=lambda p: p.parent.name)
