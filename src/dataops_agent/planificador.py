@@ -199,6 +199,33 @@ class Planificador:
                     bloqueos.append(
                         f"{ya} filas del fichero ya existen en {tabla} (misma clave {clave[0]})."
                     )
+            # 4) Integridad referencial: valores del fichero sin fila en la tabla padre.
+            #    Sin esta comprobación, la carga fallaría al aplicar por la clave foránea.
+            origen_de = {destino: original for original, destino in mapeo}
+            huerfanos_carga: dict[str, int] = {}
+            for fk in catalogo.claves_foraneas(conn, self.esquema):
+                if fk["tabla"] != tabla or fk["tabla_referenciada"] == tabla:
+                    continue
+                if len(fk["columnas"]) != 1:
+                    advertencias.append(
+                        f"La clave foránea compuesta {fk['nombre']} no se comprueba al planificar."
+                    )
+                    continue
+                columna, padre = fk["columnas"][0], fk["tabla_referenciada"]
+                columna_padre = fk["columnas_referenciadas"][0]
+                if columna not in origen_de:
+                    continue
+                valores = _valores_columna(origen, origen_de[columna])
+                faltan = _valores_sin_padre(conn, self.esquema, padre, columna_padre, valores)
+                if faltan:
+                    filas_sin_padre = sum(valores[v] for v in faltan)
+                    huerfanos_carga[fk["nombre"]] = filas_sin_padre
+                    bloqueos.append(
+                        f"{filas_sin_padre} filas del fichero tienen un {columna} que no existe "
+                        f"en {padre}.{columna_padre} ({len(faltan)} valores distintos, p. ej. "
+                        f"{_ejemplos(faltan)}). La clave foránea {fk['nombre']} haría fallar "
+                        f"la carga: carga antes las filas de {padre}."
+                    )
         if n_filas == 0:
             advertencias.append("El fichero no tiene filas.")
         if not clave:
@@ -238,6 +265,7 @@ class Planificador:
                     "filas_eliminadas": filas_actuales if modo == "reemplazar" else 0,
                     "filas_tras_aplicar": filas_finales,
                     "columnas_cargadas": [d for _, d in mapeo],
+                    "filas_sin_padre": huerfanos_carga,
                 },
                 destructivo=modo == "reemplazar" and filas_actuales > 0,
                 bloqueos=bloqueos,
@@ -421,6 +449,7 @@ class Planificador:
         if tipo not in {"tabla", "vista", "vaciar", "filas"}:
             raise ErrorPlanificacion("tipo debe ser 'tabla', 'vista', 'vaciar' o 'filas'.")
         bloqueos: list[str] = []
+        filas_hijas: dict[str, int] = {}
         destino = f"{self.esquema}.{objeto}"
         with self.gestor.lectura() as conn:
             real = catalogo.tipo_objeto(conn, self.esquema, objeto)
@@ -453,12 +482,26 @@ class Planificador:
                 afectadas = conn.execute(
                     f"SELECT count(*) FROM {destino} WHERE {condicion}"  # validado arriba
                 ).fetchone()[0]  # type: ignore[index]
+                # Filas hijas que referencian las filas a borrar: sin CASCADE, el DELETE
+                # fallaría al aplicar. Se cuentan y se bloquea con la cifra.
+                for nombre_fk, hija, hijas in self._filas_hijas(conn, objeto, condicion):
+                    filas_hijas[nombre_fk] = hijas
+                    if hijas:
+                        bloqueos.append(
+                            f"{hijas} filas de {hija} referencian las filas a borrar "
+                            f"(clave foránea {nombre_fk}). No se usa CASCADE: "
+                            "bórralas antes, si procede."
+                        )
         return self._guardar(
             Plan(
                 tipo=TipoPlan.BORRADO,
                 resumen=f"DESTRUCTIVO: {sentencia}",
                 pasos=[Paso(TipoPaso.SQL, f"Operación destructiva sobre {objeto}", sentencia)],
-                impacto={"filas_afectadas": afectadas, "dependientes": dependientes},
+                impacto={
+                    "filas_afectadas": afectadas,
+                    "dependientes": dependientes,
+                    "filas_hijas_afectadas": filas_hijas,
+                },
                 destructivo=True,
                 bloqueos=bloqueos,
                 advertencias=["Operación irreversible: requiere aprobación explícita."],
@@ -466,6 +509,29 @@ class Planificador:
         )
 
     # ============================================================== internos
+    def _filas_hijas(
+        self, conn: psycopg.Connection, tabla: str, condicion: str
+    ) -> list[tuple[str, str, int]]:
+        """Por cada clave foránea que referencia ``tabla`` (salvo autorreferencias),
+        cuántas filas de la tabla hija apuntan a las filas que cumplen ``condicion``."""
+        resultado: list[tuple[str, str, int]] = []
+        for fk in catalogo.claves_foraneas(conn, self.esquema):
+            if fk["tabla_referenciada"] != tabla or fk["tabla"] == tabla:
+                continue
+            hija = validar_identificador(fk["tabla"], "tabla")
+            cols_hija = [validar_identificador(c, "columna") for c in fk["columnas"]]
+            cols_padre = [validar_identificador(c, "columna") for c in fk["columnas_referenciadas"]]
+            izquierda = ", ".join(f"h.{c}" for c in cols_hija)
+            consulta = (
+                f"SELECT count(*) FROM {self.esquema}.{hija} AS h "
+                f"WHERE ({izquierda}) IN (SELECT {', '.join(cols_padre)} "
+                f"FROM {self.esquema}.{tabla} WHERE {condicion})"
+            )
+            self.validador.exigir(consulta, Modo.LECTURA)
+            fila = conn.execute(consulta).fetchone()  # validada arriba
+            resultado.append((fk["nombre"], hija, int(fila[0]) if fila else 0))
+        return resultado
+
     def _guardar(self, plan: Plan) -> Plan:
         """Revalida cada paso SQL con sqlglot antes de guardar el plan."""
         for paso in plan.pasos:
@@ -581,6 +647,45 @@ def _contar_existentes(
         (valores,),
     ).fetchone()
     return int(fila[0]) if fila else 0
+
+
+def _valores_columna(origen: FicheroTabular, columna_original: str) -> Counter[str]:
+    """Recuento de cada valor no nulo de una columna del fichero."""
+    return Counter(
+        valor for fila in origen.filas() if (valor := fila.get(columna_original)) is not None
+    )
+
+
+def _valores_sin_padre(
+    conn: psycopg.Connection,
+    esquema: str,
+    padre: str,
+    columna_padre: str,
+    valores: Iterable[str],
+) -> list[str]:
+    """Valores (como texto) que no existen en ``padre.columna_padre``."""
+    lista = list(valores)
+    if not lista:
+        return []
+    filas = conn.execute(
+        sql.SQL(
+            "SELECT v FROM unnest(%s::text[]) AS v "
+            "WHERE NOT EXISTS (SELECT 1 FROM {} AS p WHERE p.{}::text = v)"
+        ).format(catalogo.ident(esquema, padre), sql.Identifier(columna_padre)),
+        (lista,),
+    ).fetchall()
+    return sorted((f[0] for f in filas), key=_orden_natural)
+
+
+def _orden_natural(valor: str) -> tuple[int, int | str]:
+    return (0, int(valor)) if valor.lstrip("-").isdigit() else (1, valor)
+
+
+def _ejemplos(valores: list[str], n: int = 3) -> str:
+    """Muestra los primeros valores y, si son enteros, el rango completo."""
+    if all(v.lstrip("-").isdigit() for v in valores) and len(valores) > n:
+        return f"{', '.join(valores[:n])}…; rango {valores[0]}–{valores[-1]}"
+    return ", ".join(valores[:n]) + ("…" if len(valores) > n else "")
 
 
 def _probar_consulta(

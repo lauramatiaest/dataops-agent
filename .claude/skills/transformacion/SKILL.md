@@ -14,6 +14,10 @@ vista.
 1. Aclara la métrica: qué se mide, con qué granularidad (día, mes, categoría) y qué
    filtros de negocio aplican. Si la persona no lo dice, usa las convenciones de
    CLAUDE.md y dilo explícitamente ("asumo importe neto con descuento").
+   **No apliques filtros de negocio que la persona no haya pedido** (excluir estados,
+   periodos, segmentos...). Si los datos tienen valores que podrían cambiar la cifra
+   (por ejemplo, pedidos `cancelado` o `devuelto`), calcula sin filtrar, menciona
+   cuántas filas e importe representan y pregunta si se deben excluir.
 2. Escribe un único `SELECT` sobre tablas del proyecto. Solo JOINs sobre relaciones
    existentes o comprobadas (skill `modelado`).
 3. Pruébalo con `consultar_solo_lectura` (con `max_filas` pequeño) y revisa que los
@@ -33,13 +37,15 @@ vista.
 
 ## Plantilla de referencia
 
+Estructura de ejemplo, sin filtros de negocio: añade un `WHERE` solo si la persona
+lo ha pedido.
+
 ```sql
 SELECT date_trunc('month', p.fecha_pedido)::date AS mes,
        count(DISTINCT p.pedido_id)                AS pedidos,
        round(sum(l.cantidad * l.precio_unitario * (1 - l.descuento_pct / 100.0)), 2) AS importe
 FROM pedidos p
 JOIN lineas_pedido l ON l.pedido_id = p.pedido_id
-WHERE p.estado <> 'cancelado'
 GROUP BY 1
 ```
 

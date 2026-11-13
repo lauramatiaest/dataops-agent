@@ -20,7 +20,8 @@ description: Crea preguntas y dashboards en la herramienta de BI (Metabase) sobr
      `barras_horizontales`; reparto → `tarta` (pocas categorías); KPI → `numero`;
      detalle → `tabla`.
    - SQL simple sobre la vista: `SELECT mes, importe FROM v_ventas_mensuales ORDER BY mes`.
-   - Nombre en lenguaje de negocio ("Ventas mensuales (sin cancelados)").
+   - Nombre en lenguaje de negocio ("Ventas mensuales"); si la vista aplica un filtro de negocio,
+     indícalo en el nombre o la descripción.
 2. `crear_dashboard(nombre, pregunta_ids=[...], descripcion=...)`. Pon primero los KPI.
 3. Entrega el enlace (`url`) y una frase por gráfico con lo que muestra y la cifra clave.
 

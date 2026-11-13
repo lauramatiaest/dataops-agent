@@ -222,6 +222,47 @@ def test_borrado_con_dependientes_bloqueado(cfg: Config, piezas) -> None:
     assert any("claves foráneas" in b for b in plan.borrado("vaciar", "clientes").bloqueos)
 
 
+def test_borrado_de_filas_con_hijas_bloqueado(cfg: Config, piezas, conn_admin) -> None:
+    """M-11: sin CASCADE, borrar filas referenciadas fallaría; el plan lo dice con la cifra."""
+    plan, apl = piezas
+    _cargar_base(cfg, plan, apl)
+    apl.aplicar(plan.relacion("pedidos", "cliente_id", "clientes", "cliente_id").id)
+    # Clientes de Madrid: 1 (con los pedidos 10 y 11) y 3 (sin pedidos).
+    p = plan.borrado("filas", "clientes", "ciudad = 'Madrid'")
+    assert p.impacto["filas_afectadas"] == 2
+    assert p.impacto["filas_hijas_afectadas"] == {"fk_pedidos_cliente_id": 2}
+    assert any("2 filas de pedidos" in b and "fk_pedidos_cliente_id" in b for b in p.bloqueos)
+    # Un borrado que no deja hijas huérfanas sigue siendo posible (con confirmación).
+    libre = plan.borrado("filas", "clientes", "cliente_id = 3")
+    assert libre.aplicable, libre.bloqueos
+    assert libre.impacto["filas_hijas_afectadas"] == {"fk_pedidos_cliente_id": 0}
+    apl.aplicar(libre.id, permitir_destructivo=True)
+    assert conn_admin.execute("SELECT count(*) FROM proyecto_test.clientes").fetchone()[0] == 2
+
+
+def test_carga_con_valores_sin_padre_bloqueada(cfg: Config, piezas) -> None:
+    """M-16: el plan de carga detecta filas cuyo padre no existe antes de aplicar."""
+    plan, apl = piezas
+    _cargar_base(cfg, plan, apl)
+    apl.aplicar(plan.relacion("pedidos", "cliente_id", "clientes", "cliente_id").id)
+    _fichero(
+        cfg,
+        "pedidos_nuevos.csv",
+        "pedido_id,cliente_id,importe,estado\n"
+        "20,1,1.00,entregado\n21,9,2.00,entregado\n22,9,3.00,entregado\n23,8,4.00,entregado\n",
+    )
+    p = plan.carga("pedidos", "pedidos_nuevos.csv")
+    assert p.impacto["filas_sin_padre"] == {"fk_pedidos_cliente_id": 3}
+    assert any(
+        "3 filas del fichero" in b and "clientes.cliente_id" in b and "8, 9" in b
+        for b in p.bloqueos
+    ), p.bloqueos
+    _fichero(cfg, "pedidos_ok.csv", "pedido_id,cliente_id,importe,estado\n24,2,1.00,entregado\n")
+    ok = plan.carga("pedidos", "pedidos_ok.csv")
+    assert ok.aplicable, ok.bloqueos
+    assert ok.impacto["filas_sin_padre"] == {}
+
+
 def test_fallo_en_aplicacion_deshace_todo(cfg: Config, piezas, conn_admin) -> None:
     plan, apl = piezas
     _cargar_base(cfg, plan, apl)
