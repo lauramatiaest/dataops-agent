@@ -50,6 +50,9 @@ class Config:
     caducidad_plan_min: int = 60
     actor: str = "claude-code"
     metabase_url: str = "http://127.0.0.1:3000"
+    # URL para los enlaces que ve la persona; difiere de metabase_url cuando el servidor
+    # MCP corre en Docker y habla con Metabase por la red interna (http://metabase:3000).
+    metabase_url_publica: str = ""
     metabase_usuario: str = ""
     metabase_password: str = ""
     metabase_api_key: str = ""
@@ -106,6 +109,7 @@ class Config:
             caducidad_plan_min=int(obtener("DATAOPS_CADUCIDAD_PLAN_MIN", "60")),
             actor=obtener("DATAOPS_ACTOR", "claude-code"),
             metabase_url=obtener("METABASE_URL", "http://127.0.0.1:3000").rstrip("/"),
+            metabase_url_publica=obtener("METABASE_URL_PUBLICA", "").rstrip("/"),
             metabase_usuario=obtener("METABASE_USUARIO", ""),
             metabase_password=obtener("METABASE_PASSWORD", ""),
             metabase_api_key=obtener("METABASE_API_KEY", ""),

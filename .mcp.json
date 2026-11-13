@@ -1,10 +1,11 @@
 {
   "mcpServers": {
     "dataops": {
-      "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--project", "${CLAUDE_PROJECT_DIR:-.}", "dataops-mcp"],
-      "env": {}
+      "type": "http",
+      "url": "${DATAOPS_MCP_URL:-http://127.0.0.1:8080/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${DATAOPS_MCP_TOKEN}"
+      }
     }
   }
 }

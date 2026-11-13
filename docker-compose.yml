@@ -1,4 +1,4 @@
-# DataOps Agent: entorno local completo (PostgreSQL 16 + Metabase OSS).
+# DataOps Agent: entorno local completo (PostgreSQL 16 + Metabase OSS + servidor MCP).
 # Uso: cp .env.example .env  &&  docker compose up -d
 # Los puertos se publican solo en 127.0.0.1: nada queda expuesto a la red local.
 name: dataops-agent
@@ -59,6 +59,45 @@ services:
       timeout: 5s
       retries: 10
       start_period: 90s
+
+  mcp:
+    # Servidor MCP como aplicación independiente: Claude Code se conecta por HTTP a
+    # http://127.0.0.1:8080/mcp con el token DATAOPS_MCP_TOKEN (ver README).
+    build: .
+    image: dataops-agent-mcp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Solo las variables que necesita (sin env_file): la contraseña del administrador
+    # de PostgreSQL nunca entra en este contenedor (mínimo privilegio).
+    environment:
+      DATAOPS_MCP_TRANSPORTE: http
+      DATAOPS_MCP_HOST: 0.0.0.0
+      DATAOPS_MCP_PUERTO: "8080"
+      # Dentro de la red de Docker: nombres de servicio y puertos internos.
+      DATAOPS_PG_HOST: postgres
+      DATAOPS_PG_PUERTO: "5432"
+      DATAOPS_PG_BD: ${POSTGRES_DB}
+      DATAOPS_ESQUEMA: ${DATAOPS_ESQUEMA}
+      DATAOPS_LECTOR_USUARIO: ${DATAOPS_LECTOR_USUARIO}
+      DATAOPS_LECTOR_PASSWORD: ${DATAOPS_LECTOR_PASSWORD}
+      DATAOPS_ESCRITOR_USUARIO: ${DATAOPS_ESCRITOR_USUARIO}
+      DATAOPS_ESCRITOR_PASSWORD: ${DATAOPS_ESCRITOR_PASSWORD}
+      METABASE_URL: http://metabase:3000
+      METABASE_USUARIO: ${METABASE_USUARIO:-}
+      METABASE_PASSWORD: ${METABASE_PASSWORD:-}
+      METABASE_API_KEY: ${METABASE_API_KEY:-}
+      # Los enlaces que ve la persona apuntan al puerto publicado en su equipo.
+      METABASE_URL_PUBLICA: http://127.0.0.1:${METABASE_PUERTO:-3000}
+      # Variable de entorno del equipo (o del .env). Sin ella, el servidor no arranca.
+      DATAOPS_MCP_TOKEN: ${DATAOPS_MCP_TOKEN:-}
+    ports:
+      - "127.0.0.1:${DATAOPS_MCP_PUERTO:-8080}:8080"
+    volumes:
+      # Las entregas, en SOLO LECTURA: ni el agente ni el servidor pueden modificarlas.
+      - ./datos:/app/datos:ro
+      - ./auditoria:/app/auditoria
 
 volumes:
   pgdata:

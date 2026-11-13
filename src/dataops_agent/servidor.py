@@ -505,13 +505,32 @@ def _primera_linea(texto: str) -> str:
 
 
 def main() -> None:
-    """Punto de entrada: carga .env del proyecto y sirve por stdio."""
+    """Punto de entrada: carga .env del proyecto y sirve por stdio o por HTTP.
+
+    ``DATAOPS_MCP_TRANSPORTE``: ``stdio`` (por defecto; proceso hijo de Claude Code) o
+    ``http`` (aplicación independiente en ``DATAOPS_MCP_HOST``:``DATAOPS_MCP_PUERTO``,
+    ruta ``/mcp``, protegida con ``DATAOPS_MCP_TOKEN``).
+    """
     raiz = Path(os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     # DATAOPS_ENV_FILE permite indicar el .env cuando el proceso no arranca en el proyecto.
     cargar_dotenv(Path(os.environ.get("DATAOPS_ENV_FILE") or raiz / ".env"))
     os.chdir(raiz)  # rutas relativas (datos/, auditoria/) respecto al proyecto
     cfg = Config.desde_entorno()
-    crear_servidor(cfg, MetabaseAdapter(cfg)).run()
+    servidor = crear_servidor(cfg, MetabaseAdapter(cfg))
+    transporte = os.environ.get("DATAOPS_MCP_TRANSPORTE", "stdio").strip().lower()
+    if transporte == "stdio":
+        servidor.run()
+    elif transporte == "http":
+        from dataops_agent.transporte_http import servir
+
+        servir(
+            servidor,
+            token=os.environ.get("DATAOPS_MCP_TOKEN", ""),
+            host=os.environ.get("DATAOPS_MCP_HOST", "127.0.0.1"),
+            puerto=int(os.environ.get("DATAOPS_MCP_PUERTO", "8080")),
+        )
+    else:
+        raise SystemExit(f"DATAOPS_MCP_TRANSPORTE no válido: {transporte!r} (stdio o http).")
 
 
 if __name__ == "__main__":

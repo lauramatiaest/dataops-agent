@@ -172,20 +172,52 @@ Problemas conocidos y solución:
 
 ## Conectarlo a Claude Code
 
-El repositorio ya trae todo lo necesario:
+El servidor MCP es una **aplicación independiente**: corre como servicio `mcp` de
+`docker compose` y Claude Code se conecta a ella por HTTP (`http://127.0.0.1:8080/mcp`),
+con un token en cada petición.
 
-- `.mcp.json` declara el servidor `dataops` (stdio, lanzado con `uv run dataops-mcp`).
+- `.mcp.json` declara el servidor `dataops` por HTTP con la cabecera
+  `Authorization: Bearer ${DATAOPS_MCP_TOKEN}`.
 - `CLAUDE.md` y `.claude/skills/` definen el comportamiento del agente.
 - `.claude/settings.json` define los permisos.
 
+**1. Token (una sola vez).** Genera uno y guárdalo como variable de entorno de tu
+usuario: la leen tanto `docker compose` (para el servidor) como Claude Code (para la
+cabecera de `.mcp.json`).
+
 ```bash
-cd dataops-agent
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Linux/macOS: añade a ~/.bashrc o ~/.zshrc
+export DATAOPS_MCP_TOKEN="<token>"
+# Windows (PowerShell): persistente para el usuario; abre una terminal NUEVA después
+setx DATAOPS_MCP_TOKEN "<token>"
+```
+
+**2. Levantar el servidor** (junto a PostgreSQL y Metabase):
+
+```bash
+docker compose up -d --build
+docker compose logs mcp     # "Uvicorn running on http://0.0.0.0:8080"
+```
+
+Sin token, el servicio `mcp` falla al arrancar y `docker compose logs mcp` explica cómo
+generarlo.
+
+**3. Abrir Claude Code** en la raíz del repositorio:
+
+```bash
 claude
 ```
 
 1. Claude Code pregunta si confías en el servidor MCP del proyecto: acepta `dataops`.
 2. Escribe `/mcp` y comprueba que `dataops` aparece conectado con sus herramientas.
 3. Prueba: *"Lista los ficheros de datos y perfila demo/pedidos.csv"*.
+
+**Alternativa sin Docker (stdio):** `.mcp.stdio.json` lanza el servidor como proceso
+hijo de Claude Code (`claude --mcp-config .mcp.stdio.json --strict-mcp-config`). Es el
+transporte que usan los tests y la evaluación, que arranca un servidor limpio por tarea.
+
+Tras cambiar código del servidor: `docker compose up -d --build mcp`.
 
 **Usa el modo de permisos normal** (sin *auto mode* en la barra inferior; se cambia con
 Shift+Tab). El proyecto lo fija por defecto (`defaultMode` en `.claude/settings.json`),
@@ -223,7 +255,9 @@ Ver [eval/README.md](eval/README.md).
 ├── CLAUDE.md                     # reglas del agente
 ├── .claude/skills/<skill>/SKILL.md
 ├── .claude/settings.json         # permisos (allow / ask / deny)
-├── .mcp.json                     # servidor MCP del proyecto
+├── .mcp.json                     # servidor MCP del proyecto (HTTP + token)
+├── .mcp.stdio.json               # alternativa: servidor como proceso hijo (stdio)
+├── Dockerfile                    # imagen del servidor MCP (servicio mcp)
 ├── docker-compose.yml            # PostgreSQL 16 + Metabase v0.64.2.8
 ├── docker/postgres/init/         # inicialización (roles, auditoría, esquema)
 ├── src/dataops_agent/

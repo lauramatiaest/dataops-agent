@@ -78,5 +78,21 @@ def test_permisos_apuntan_a_herramientas_reales(herramientas: set[str]) -> None:
 
 
 def test_mcp_json() -> None:
-    config = json.loads((RAIZ / ".mcp.json").read_text())
-    assert config["mcpServers"]["dataops"]["type"] == "stdio"
+    """Por defecto, servidor independiente por HTTP con token; stdio como alternativa."""
+    http = json.loads((RAIZ / ".mcp.json").read_text())["mcpServers"]["dataops"]
+    assert http["type"] == "http"
+    assert http["url"].endswith("127.0.0.1:8080/mcp}")
+    assert http["headers"]["Authorization"] == "Bearer ${DATAOPS_MCP_TOKEN}"
+    stdio = json.loads((RAIZ / ".mcp.stdio.json").read_text())["mcpServers"]["dataops"]
+    assert stdio["type"] == "stdio"
+
+
+def test_contenedor_mcp_minimo_privilegio() -> None:
+    """El servicio mcp no recibe la contraseña del administrador y monta datos/ en solo
+    lectura; el puerto solo se publica en 127.0.0.1."""
+    compose = yaml.safe_load((RAIZ / "docker-compose.yml").read_text(encoding="utf-8"))
+    mcp = compose["services"]["mcp"]
+    assert "env_file" not in mcp
+    assert not any("POSTGRES_PASSWORD" in str(v) for v in mcp["environment"].values())
+    assert "./datos:/app/datos:ro" in mcp["volumes"]
+    assert all(p.startswith("127.0.0.1:") for p in mcp["ports"])

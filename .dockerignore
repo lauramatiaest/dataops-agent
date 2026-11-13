@@ -1,0 +1,18 @@
+# Solo entra en la imagen lo necesario para el servidor (pyproject, uv.lock, README, src)
+.git
+.github
+.venv
+.env
+.claude
+.mcp.json
+datos
+auditoria
+eval
+tests
+docs
+docker
+scripts
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache

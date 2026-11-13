@@ -53,6 +53,7 @@ class MetabaseAdapter(BIAdapter):
     def __init__(self, cfg: Config, cliente: httpx.Client | None = None) -> None:
         self.cfg = cfg
         self.base = cfg.metabase_url.rstrip("/")
+        self.publica = (cfg.metabase_url_publica or cfg.metabase_url).rstrip("/")
         self._http = cliente or httpx.Client(base_url=self.base, timeout=30.0)
         self._cabeceras: dict[str, str] = {}
         self._bd_id: int | None = None
@@ -148,9 +149,9 @@ class MetabaseAdapter(BIAdapter):
         if salud.status_code != 200:
             return {"disponible": False, "motivo": f"Metabase arrancando ({salud.status_code})"}
         try:
-            return {"disponible": True, "url": self.base, "base_datos_id": self.id_base_datos()}
+            return {"disponible": True, "url": self.publica, "base_datos_id": self.id_base_datos()}
         except ErrorBI as error:
-            return {"disponible": True, "url": self.base, "base_datos_id": None,
+            return {"disponible": True, "url": self.publica, "base_datos_id": None,
                     "motivo": str(error)}
 
     def sincronizar(self) -> None:
@@ -167,7 +168,7 @@ class MetabaseAdapter(BIAdapter):
         if pregunta.descripcion:
             cuerpo["description"] = pregunta.descripcion
         datos = self._peticion("POST", "/api/card", json=cuerpo)
-        return RefBI(int(datos["id"]), pregunta.nombre, f"{self.base}/question/{datos['id']}")
+        return RefBI(int(datos["id"]), pregunta.nombre, f"{self.publica}/question/{datos['id']}")
 
     def actualizar_pregunta(
         self, pregunta_id: int, sql: str | None = None, nombre: str | None = None,
@@ -184,7 +185,7 @@ class MetabaseAdapter(BIAdapter):
             raise ValueError("No hay nada que actualizar.")
         datos = self._peticion("PUT", f"/api/card/{pregunta_id}", json=cuerpo)
         return RefBI(pregunta_id, datos.get("name", nombre or ""),
-                     f"{self.base}/question/{pregunta_id}")
+                     f"{self.publica}/question/{pregunta_id}")
 
     def crear_dashboard(
         self, nombre: str, pregunta_ids: list[int], descripcion: str | None = None
@@ -193,7 +194,7 @@ class MetabaseAdapter(BIAdapter):
         if descripcion:
             cuerpo["description"] = descripcion
         datos = self._peticion("POST", "/api/dashboard", json=cuerpo)
-        ref = RefBI(int(datos["id"]), nombre, f"{self.base}/dashboard/{datos['id']}")
+        ref = RefBI(int(datos["id"]), nombre, f"{self.publica}/dashboard/{datos['id']}")
         if pregunta_ids:
             self.anadir_a_dashboard(ref.id, pregunta_ids)
         return ref
@@ -213,7 +214,9 @@ class MetabaseAdapter(BIAdapter):
         nuevas = _colocar(pregunta_ids, fila_inicial=fila_libre)
         self._peticion("PUT", f"/api/dashboard/{dashboard_id}",
                        json={"dashcards": existentes + nuevas})
-        return RefBI(dashboard_id, actual.get("name", ""), f"{self.base}/dashboard/{dashboard_id}")
+        return RefBI(
+            dashboard_id, actual.get("name", ""), f"{self.publica}/dashboard/{dashboard_id}"
+        )
 
     # ---------------------------------------------------- configuración inicial
     def configurar_regional(self, idioma: str = "es", separadores: str = ",.") -> None:
