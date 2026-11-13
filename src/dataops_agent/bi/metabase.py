@@ -216,6 +216,19 @@ class MetabaseAdapter(BIAdapter):
         return RefBI(dashboard_id, actual.get("name", ""), f"{self.base}/dashboard/{dashboard_id}")
 
     # ---------------------------------------------------- configuración inicial
+    def configurar_regional(self, idioma: str = "es", separadores: str = ",.") -> None:
+        """Idioma del sitio y separadores numéricos (",." = coma decimal y punto de miles).
+
+        Ajustes generales de Metabase (``PUT /api/setting/<clave>``); afectan a cómo se
+        muestran fechas y números en todas las preguntas y dashboards.
+        """
+        self._peticion("PUT", "/api/setting/site-locale", json={"value": idioma})
+        self._peticion(
+            "PUT",
+            "/api/setting/custom-formatting",
+            json={"value": {"type/Number": {"number_separators": separadores}}},
+        )
+
     def configurar_admin(self, email: str, password: str, sitio: str = "DataOps Agent") -> bool:
         """Completa el asistente inicial de Metabase si aún no se ha hecho.
 

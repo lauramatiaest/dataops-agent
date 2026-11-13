@@ -54,7 +54,7 @@ def test_tabla_desde_fichero_infiere_tipos(cfg: Config, piezas, conn_admin) -> N
     _fichero(cfg, "pedidos.csv", PEDIDOS)
     p = plan.tabla("pedidos", desde_fichero="pedidos.csv", clave_primaria=["pedido_id"])
     assert p.aplicable, p.bloqueos
-    assert "importe numeric NOT NULL" in p.sql_completo()
+    assert "importe numeric(12,2) NOT NULL" in p.sql_completo()
     # Planificar no cambia nada:
     assert conn_admin.execute("SELECT to_regclass('proyecto_test.pedidos')").fetchone()[0] is None
     resultado = apl.aplicar(p.id)

@@ -35,7 +35,7 @@ def validar_identificador(valor: str, que: str = "identificador") -> str:
 class Config:
     """Parámetros de ejecución del servidor MCP."""
 
-    pg_host: str = "localhost"
+    pg_host: str = "127.0.0.1"
     pg_puerto: int = 5432
     pg_bd: str = "dataops"
     esquema: str = "proyecto_demo"
@@ -49,7 +49,7 @@ class Config:
     max_filas: int = 200
     caducidad_plan_min: int = 60
     actor: str = "claude-code"
-    metabase_url: str = "http://localhost:3000"
+    metabase_url: str = "http://127.0.0.1:3000"
     metabase_usuario: str = ""
     metabase_password: str = ""
     metabase_api_key: str = ""
@@ -91,7 +91,7 @@ class Config:
             return e.get(nombre, defecto)
 
         return cls(
-            pg_host=obtener("DATAOPS_PG_HOST", "localhost"),
+            pg_host=obtener("DATAOPS_PG_HOST", "127.0.0.1"),
             pg_puerto=int(obtener("DATAOPS_PG_PUERTO", "5432")),
             pg_bd=obtener("DATAOPS_PG_BD", "dataops"),
             esquema=obtener("DATAOPS_ESQUEMA", "proyecto_demo"),
@@ -105,7 +105,7 @@ class Config:
             max_filas=int(obtener("DATAOPS_MAX_FILAS", "200")),
             caducidad_plan_min=int(obtener("DATAOPS_CADUCIDAD_PLAN_MIN", "60")),
             actor=obtener("DATAOPS_ACTOR", "claude-code"),
-            metabase_url=obtener("METABASE_URL", "http://localhost:3000").rstrip("/"),
+            metabase_url=obtener("METABASE_URL", "http://127.0.0.1:3000").rstrip("/"),
             metabase_usuario=obtener("METABASE_USUARIO", ""),
             metabase_password=obtener("METABASE_PASSWORD", ""),
             metabase_api_key=obtener("METABASE_API_KEY", ""),

@@ -11,7 +11,7 @@ docker compose up -d && docker compose ps           # todo "healthy"
 uv run python datos/generar_datos.py
 uv run python scripts/configurar_metabase.py
 uv run python -m dataops_agent.admin reiniciar-proyecto \
-  --dsn-admin "host=localhost port=5432 user=dataops_admin password=<la de .env> dbname=dataops"
+  --dsn-admin "host=127.0.0.1 port=5432 user=dataops_admin password=<la de .env> dbname=dataops"
 ```
 
 - Borra en Metabase los dashboards y preguntas de ensayos anteriores.

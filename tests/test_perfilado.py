@@ -21,7 +21,9 @@ def _escribir(dir_: Path, nombre: str, contenido: str) -> str:
     [
         (["1", "2", "-3"], "integer"),
         (["1", "3000000000"], "bigint"),
-        (["1.5", "2", "-0.25"], "numeric"),
+        (["1.5", "2", "-0.25"], "numeric(12,2)"),
+        (["28.25", "494.86"], "numeric(12,2)"),
+        (["0.123456789"], "numeric"),
         (["true", "false", "t"], "boolean"),
         (["2026-01-31", "2025-12-01"], "date"),
         (["2026-01-31 10:00:00", "2026-01-31T11:30"], "timestamp"),
@@ -68,7 +70,7 @@ def test_candidata_clave_y_punto_y_coma(tmp_path: Path) -> None:
     nombre = _escribir(tmp_path, "p.csv", "sku;precio\nA1;1.50\nA2;2.00\n")
     perfil = perfilar(abrir(tmp_path, nombre))
     assert perfil.candidatas_clave == ["sku"]
-    assert perfil.columnas[1].tipo_inferido == "numeric"
+    assert perfil.columnas[1].tipo_inferido == "numeric(12,2)"
 
 
 def test_json_lista_y_objeto_envoltorio(tmp_path: Path) -> None:

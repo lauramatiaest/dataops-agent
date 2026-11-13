@@ -377,7 +377,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit("ANTHROPIC_API_KEY está definida: claude -p facturaría la API en lugar de la "
                  "suscripción. Ejecuta `unset ANTHROPIC_API_KEY` y vuelve a lanzar.")
     args.dsn_admin = args.dsn_admin or os.environ.get("DATAOPS_DSN_ADMIN") or (
-        f"host=localhost port={os.environ.get('DATAOPS_PG_PUERTO', '5432')} "
+        f"host={os.environ.get('DATAOPS_PG_HOST', '127.0.0.1')} "
+        f"port={os.environ.get('DATAOPS_PG_PUERTO', '5432')} "
         f"dbname={os.environ.get('POSTGRES_DB', 'dataops')} "
         f"user={os.environ.get('POSTGRES_USER', '')} "
         f"password={os.environ.get('POSTGRES_PASSWORD', '')}"

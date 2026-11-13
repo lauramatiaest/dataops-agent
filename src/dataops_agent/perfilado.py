@@ -68,7 +68,7 @@ def inferir_tipo(valores: list[str]) -> str:
     if all(_ENTERO.match(v) for v in valores):
         return "bigint" if any(abs(int(v)) > _LIMITE_INT32 for v in valores) else "integer"
     if all(_ENTERO.match(v) or _DECIMAL.match(v) for v in valores):
-        return "numeric"
+        return _tipo_decimal(valores)
     if all(v.lower() in _BOOLEANOS for v in valores):
         return "boolean"
     if all(_FECHA.match(v) for v in valores):
@@ -78,6 +78,21 @@ def inferir_tipo(valores: list[str]) -> str:
     if all(_FECHA_HORA.match(v) or _FECHA_HORA_TZ.match(v) for v in valores):
         return "timestamptz"
     return "text"
+
+
+def _tipo_decimal(valores: list[str]) -> str:
+    """``numeric(p,s)`` con la escala observada (máx. de decimales) y precisión holgada.
+
+    Así un importe como 28.25 se propone directamente como ``numeric(12,2)`` en lugar
+    de un ``numeric`` sin escala (I-10). Si los números son demasiado grandes para
+    fijar la precisión con margen, se deja ``numeric`` sin límites.
+    """
+    escala = max((len(v.split(".", 1)[1]) for v in valores if "." in v), default=0)
+    enteros = max(len(v.lstrip("-").split(".", 1)[0]) for v in valores)
+    precision = max(12, enteros + escala + 2)
+    if escala == 0 or escala > 6 or precision > 38:
+        return "numeric"
+    return f"numeric({precision},{escala})"
 
 
 def perfilar(fichero: FicheroTabular, max_ejemplos: int = 3) -> PerfilFichero:
@@ -143,7 +158,7 @@ def _perfilar_columna(
         and tipo in {"integer", "bigint", "text"}
     )
     minimo = maximo = None
-    if valores and tipo in {"integer", "bigint", "numeric"}:
+    if valores and (tipo in {"integer", "bigint"} or tipo.startswith("numeric")):
         numeros = [_a_decimal(v) for v in valores]
         minimo, maximo = str(min(numeros)), str(max(numeros))
     elif valores and tipo in {"date", "timestamp", "timestamptz"}:

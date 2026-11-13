@@ -3,7 +3,7 @@
 Los tests marcados con ``integracion`` necesitan un PostgreSQL real. Se activan
 definiendo ``DATAOPS_TEST_DSN`` con un DSN de superusuario, por ejemplo:
 
-    export DATAOPS_TEST_DSN="host=localhost port=5432 user=dataops_admin password=... dbname=dataops"
+    export DATAOPS_TEST_DSN="host=127.0.0.1 port=5432 user=dataops_admin password=... dbname=dataops"
 
 Cada test de integración recibe un esquema de proyecto recién creado y vacío.
 """
@@ -35,7 +35,7 @@ def cfg_base() -> Config:
         pytest.skip("DATAOPS_TEST_DSN no definido: se omiten los tests de integración")
     info = _conninfo(DSN_ADMIN)
     cfg = Config(
-        pg_host=str(info.get("host", "localhost")),
+        pg_host=str(info.get("host", "127.0.0.1")),
         pg_puerto=int(info.get("port", 5432)),
         pg_bd=str(info.get("dbname", "dataops")),
         esquema=ESQUEMA_TEST,

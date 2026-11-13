@@ -58,6 +58,13 @@ def main() -> None:
 
     print("4/4 Sincronizando esquema (en segundo plano en Metabase)")
     mb.sincronizar()
+
+    print("Extra: formato regional (español, coma decimal y punto de miles)")
+    try:
+        mb.configurar_regional()
+        print("    aplicado")
+    except ErrorBI as error:  # no es imprescindible: el resto ya está configurado
+        print(f"    no se pudo aplicar ({error}); se puede cambiar en Admin → Settings")
     print(f"Listo. Abre {cfg.metabase_url} e inicia sesión con {cfg.metabase_usuario}.")
 
 
