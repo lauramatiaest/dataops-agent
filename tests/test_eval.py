@@ -269,3 +269,20 @@ def test_transcripcion_con_eventos_de_texto() -> None:
     analisis = run_eval.analizar_transcripcion(lineas)
     assert analisis["respuesta"] == "Hecho" and analisis["turnos"] == 2
     assert analisis["herramientas"] == {"mcp__sql__ejecutar_sql": 1}
+
+
+def test_ejecucion_sin_resultado_no_cuenta_como_fallo_del_agente() -> None:
+    assert run_eval.es_valida({"turnos": 12, "codigo_salida": 0})
+    assert run_eval.es_valida({"turnos": None, "codigo_salida": -1})  # agotó el tiempo
+    assert not run_eval.es_valida({"turnos": None, "codigo_salida": 1})  # no arrancó
+
+
+def test_dashboard_de_una_ejecucion_anterior_no_cuenta() -> None:
+    def metabase(_: str) -> list[dict]:
+        return [{"id": 3, "name": "Ventas DataOps"}]
+
+    tarea = {"id": "20", "comprobaciones": [{"tipo": "bi_dashboard", "nombre": "Ventas DataOps"}]}
+    previo = ContextoComparacion(None, "e", "", {}, metabase, frozenset({3}))  # type: ignore[arg-type]
+    nuevo = ContextoComparacion(None, "e", "", {}, metabase, frozenset())  # type: ignore[arg-type]
+    assert comparador.comparar(tarea, previo)["exito"] is False
+    assert comparador.comparar(tarea, nuevo)["exito"] is True

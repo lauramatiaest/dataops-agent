@@ -55,6 +55,9 @@ class ContextoComparacion:
     respuesta: str
     manifiestos: dict[str, Any]
     metabase: Callable[[str], Any] | None = None  # GET autenticado a la API de Metabase
+    # Dashboards que ya existían antes de la ejecución: Metabase no se reinicia entre
+    # ejecuciones, así que sin esto contaría un dashboard creado por otra anterior.
+    dashboards_previos: frozenset[int] = frozenset()
 
 
 # ------------------------------------------------------------ valores esperados
@@ -243,9 +246,10 @@ def _bi_dashboard(c: dict[str, Any], ctx: ContextoComparacion) -> tuple[bool, st
         return False, "Metabase no disponible para comprobar"
     dashboards = ctx.metabase("/api/dashboard")
     lista = dashboards.get("data", dashboards) if isinstance(dashboards, dict) else dashboards
-    nombres = [d.get("name", "") for d in lista]
+    nuevos = [d for d in lista if d.get("id") not in ctx.dashboards_previos]
+    nombres = [d.get("name", "") for d in nuevos]
     ok = any(c["nombre"].strip().lower() == n.strip().lower() for n in nombres)
-    return ok, f"dashboards: {nombres}"
+    return ok, f"dashboards creados en la ejecución: {nombres}"
 
 
 _COMPROBACIONES: dict[str, Callable[[dict[str, Any], ContextoComparacion], tuple[bool, str]]] = {

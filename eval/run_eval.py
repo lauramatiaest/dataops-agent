@@ -311,6 +311,19 @@ def cliente_metabase(cfg: Config) -> Any:
         return None
 
 
+def ids_dashboards(metabase: Any) -> list[int]:
+    datos = metabase("/api/dashboard")
+    lista = datos.get("data", datos) if isinstance(datos, dict) else datos
+    return [d["id"] for d in lista if isinstance(d, dict) and "id" in d]
+
+
+def es_valida(fila: dict[str, Any]) -> bool:
+    """¿Llegó a ejecutarse el agente? Sin evento de resultado y sin agotar el tiempo,
+    Claude Code no arrancó o falló antes de empezar: es un fallo del lanzador, no del
+    agente, y la ejecución se repite en lugar de contarla como tarea fallida."""
+    return fila.get("turnos") is not None or fila.get("codigo_salida") == -1
+
+
 def ejecutar_una(
     tarea: dict[str, Any], configuracion: str, repeticion: int, cfg: Config,
     args: argparse.Namespace, dir_salida: Path, manifiestos: dict[str, Any],
@@ -321,6 +334,8 @@ def ejecutar_una(
     actor = f"eval-{nombre}"
 
     preparar(tarea["preparacion"], cfg, args.dsn_admin, args.dir_datos, tarea.get("sql_admin"))
+    metabase = cliente_metabase(cfg) if tarea.get("requiere_bi") else None
+    dashboards_previos = frozenset(ids_dashboards(metabase)) if metabase else frozenset()
     with psycopg.connect(args.dsn_admin, autocommit=True) as conn:
         previos = objetos_del_esquema(conn, cfg.esquema)
     ruta_mcp = dir_ejecucion / "mcp.json"
@@ -354,7 +369,7 @@ def ejecutar_una(
         veredicto = comparar(tarea, ContextoComparacion(
             conn=conn, esquema=cfg.esquema, respuesta=analisis["respuesta"],
             manifiestos=manifiestos,
-            metabase=cliente_metabase(cfg) if tarea.get("requiere_bi") else None,
+            metabase=metabase, dashboards_previos=dashboards_previos,
         ))
     return {
         "configuracion": configuracion, "tarea": tarea["id"], "categoria": tarea["categoria"],
@@ -433,6 +448,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--dsn-admin", default=None, help="o variable DATAOPS_DSN_ADMIN")
     parser.add_argument("--salida", type=Path, default=RAIZ / "eval" / "resultados")
+    parser.add_argument(
+        "--rehacer-tareas", nargs="*", default=[],
+        help="con --continuar: ids de tareas cuyas ejecuciones se descartan y se repiten",
+    )
     parser.add_argument("--dir-datos", type=Path, default=RAIZ / "datos")
     parser.add_argument("--si", action="store_true", help="no pedir confirmación")
     parser.add_argument("--solo-resumen", type=Path, default=None)
@@ -472,7 +491,10 @@ def main(argv: list[str] | None = None) -> None:
     if not args.si and input("¿Continuar? [s/N] ").strip().lower() != "s":
         return
 
-    dir_salida = args.continuar or args.salida / datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Ruta absoluta: la configuración A se ejecuta en una carpeta temporal y con una ruta
+    # relativa Claude Code no encuentra su --mcp-config.
+    dir_salida = (args.continuar or args.salida / datetime.now().strftime("%Y%m%d-%H%M%S"))
+    dir_salida = dir_salida.resolve()
     dir_salida.mkdir(parents=True, exist_ok=True)
     args.dir_datos = args.dir_datos.resolve()
     manifiestos = cargar_manifiestos(args.dir_datos)
@@ -481,6 +503,16 @@ def main(argv: list[str] | None = None) -> None:
     ruta_filas = dir_salida / "ejecuciones.jsonl"
     filas = [json.loads(x) for x in ruta_filas.read_text(encoding="utf-8").splitlines()
              if x.strip()] if ruta_filas.exists() else []
+    descartadas = [f for f in filas
+                   if not es_valida(f) or f["tarea"] in set(args.rehacer_tareas)]
+    if descartadas:
+        copia = ruta_filas.with_name(f"ejecuciones.antes-{datetime.now():%H%M%S}.jsonl")
+        shutil.copyfile(ruta_filas, copia)
+        filas = [f for f in filas if f not in descartadas]
+        ruta_filas.write_text("".join(json.dumps(f, ensure_ascii=False, default=str) + "\n"
+                                      for f in filas), encoding="utf-8")
+        print(f"Se descartan {len(descartadas)} ejecuciones no válidas o pedidas con "
+              f"--rehacer-tareas (copia en {copia.name}); se repiten.")
     hechas = {(f["configuracion"], f["tarea"], f["repeticion"]) for f in filas}
     if hechas:
         print(f"Se reanudan: {len(hechas)} ejecuciones ya hechas en {dir_salida}.")
@@ -507,6 +539,17 @@ def main(argv: list[str] | None = None) -> None:
                         }, ensure_ascii=False) + "\n")
                     print(f"    ⚠  error del lanzador ({type(error).__name__}); queda "
                           "pendiente y se reintenta con --continuar", flush=True)
+                    continue
+                if not es_valida(fila):
+                    fallidas += 1
+                    with (dir_salida / "errores_lanzador.jsonl").open("a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "configuracion": configuracion, "tarea": tarea["id"],
+                            "repeticion": repeticion, "codigo_salida": fila["codigo_salida"],
+                            "error": "Claude Code terminó sin resultado (ver stderr.txt)",
+                        }, ensure_ascii=False) + "\n")
+                    print(f"    ⚠  Claude Code terminó sin resultado en {fila['segundos']} s "
+                          "(ver stderr.txt); se reintenta con --continuar", flush=True)
                     continue
                 filas.append(fila)
                 with ruta_filas.open("a", encoding="utf-8") as f:
