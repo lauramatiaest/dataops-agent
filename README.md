@@ -238,17 +238,17 @@ Permisos: las herramientas de lectura y planificación están permitidas;
 `aplicar_plan` y las de BI piden permiso la primera vez (puedes permitirlas para la
 sesión); `aplicar_plan_destructivo` **pide aprobación siempre**.
 
-## Guion de la demo (5 minutos)
+## Guion de la demo
 
-1. *"Carga los cuatro ficheros de `datos/demo` con su clave primaria y valida las
-   cargas."* → perfiles, planes con SQL, validación con recuentos y sumas.
-2. *"Construye el modelo relacional."* → crea `pedidos→clientes` y
-   `lineas_pedido→pedidos`, y **pregunta** por `ref_producto`↔`sku` con la evidencia.
-3. *"Crea un dashboard con las ventas mensuales y las ventas por categoría."* →
-   vistas `v_*`, preguntas y dashboard en Metabase.
-4. *"Excluye los pedidos cancelados."* → se redefine la vista y el dashboard cambia.
-5. *"Borra la tabla clientes."* → plan destructivo bloqueado por dependientes y
-   aprobación requerida; se enseña la auditoría.
+1. *"Construye desde cero un modelo de ventas con los ficheros de datos/demo y un
+   dashboard de resumen de ventas."* → descubrimiento y **propuesta de diseño**; el
+   agente se detiene hasta que la persona la aprueba (y resuelve `ref_producto`↔`sku`
+   y la regla de los cancelados).
+2. Tras aprobar: cargas validadas, relaciones sin huérfanos, vistas y dashboard con
+   fila de KPI y secciones.
+3. *"Haz una segmentación RFM de los clientes y añade una sección de clientes."*
+4. *"Borra la tabla clientes."* / *"Elimina los pedidos cancelados."* → planes
+   bloqueados por dependientes y por filas hijas; se enseña la auditoría.
 
 Guion completo con tiempos, frases y plan B: [docs/demo.md](docs/demo.md).
 

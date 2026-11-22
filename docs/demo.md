@@ -1,52 +1,91 @@
-# Guion de la demo (5 minutos)
+# Guion de la demo
 
-Objetivo: enseñar en directo que el agente **construye** (ficheros → modelo →
-dashboard) y que **se controla** (pregunta en vez de inventar, pide aprobación para lo
-destructivo y deja rastro).
+Objetivo: enseñar en directo que el agente **construye** (ficheros → modelo → análisis
+→ dashboard → documentación) y que **se controla** (pide aprobar el diseño, pregunta en
+vez de inventar, bloquea lo peligroso, pide aprobación para lo destructivo y deja
+rastro).
 
-## Preparación (antes de la sesión)
+Los tiempos de referencia son los **medidos en las pruebas funcionales** (bitácora,
+P-xx). Los de los pasos nuevos están marcados como *a medir*: mídelos en el ensayo y
+ajusta el guion al tiempo de la defensa.
 
-```bash
-docker compose up -d && docker compose ps           # todo "healthy"
+## Preparación (Windows, PowerShell, en la carpeta del repositorio)
+
+```powershell
+docker compose up -d --build
+docker compose ps                     # postgres, metabase y mcp en marcha
 uv run python datos/generar_datos.py
 uv run python scripts/configurar_metabase.py
-uv run python -m dataops_agent.admin reiniciar-proyecto \
-  --dsn-admin "host=127.0.0.1 port=5432 user=dataops_admin password=<la de .env> dbname=dataops"
+
+# Esquema del proyecto vacío (borra todo lo de proyecto_demo):
+$us = (Select-String -Path .env -Pattern '^POSTGRES_USER=(.*)').Matches.Groups[1].Value
+$pw = (Select-String -Path .env -Pattern '^POSTGRES_PASSWORD=(.*)').Matches.Groups[1].Value
+uv run python -m dataops_agent.admin reiniciar-proyecto --dsn-admin "host=127.0.0.1 port=5433 user=$us password=$pw dbname=dataops"
 ```
 
-- Borra en Metabase los dashboards y preguntas de ensayos anteriores.
-- Abre dos ventanas: terminal con `claude` en la raíz del proyecto y el navegador en
-  `http://localhost:3000` con la sesión iniciada.
-- Ten `/mcp` comprobado (servidor `dataops` conectado).
-- **Plan B:** graba un ensayo completo en vídeo y ten preparado un estado ya cargado
-  (ejecuta los pasos 1-2 en otro esquema) por si algo falla en directo.
+- En Metabase (`http://127.0.0.1:3000`), archiva los dashboards y preguntas de los
+  ensayos anteriores.
+- Abre `claude` en la raíz del proyecto y comprueba:
+  - `/mcp`: `dataops` conectado. Si sale 401, la variable `DATAOPS_MCP_TOKEN` del
+    usuario no coincide con la del contenedor.
+  - La barra inferior **no** dice *auto mode*: la demo es en modo normal (Shift+Tab
+    cambia de modo).
+- Ten abiertos el navegador con Metabase y `docs/modelo/diccionario.md` de un ensayo
+  anterior por si no da tiempo a generarlo.
+- **Permisos durante la demo:** la primera vez que Claude Code pida permiso para
+  `aplicar_plan`, elige la opción de no volver a preguntar. Así la construcción no se
+  llena de avisos. `aplicar_plan_destructivo` seguirá pidiéndolo siempre (regla `ask`),
+  que es lo que se quiere enseñar. Esa opción se guarda en
+  `.claude/settings.local.json`: bórrala después si no la quieres.
 
-## Guion
+## Guion en directo
 
-| Tiempo | Qué dices / escribes | Qué debe pasar | Qué señalas |
-|---|---|---|---|
-| 0:00-0:30 | Contexto: "Un analista quiere un dashboard a partir de ficheros. El agente es Claude Code; lo que he construido es lo que le permite hacerlo de forma segura." | — | Diagrama del README |
-| 0:30-1:45 | *"Carga los cuatro ficheros de datos/demo en tablas con su clave primaria y valida las cargas."* | Perfila, propone claves, enseña planes con SQL; Claude Code pide permiso para `aplicar_plan`; tabla de validación (recuento, suma, unicidad) | El plan antes de aplicar; la validación determinista |
-| 1:45-2:45 | *"Construye el modelo relacional."* | Crea `pedidos→clientes` y `lineas_pedido→pedidos` sin huérfanos; **pregunta** si `ref_producto` es la referencia a `productos.sku` (100 % de coincidencia, nombres distintos) | "No la inventa: aporta la evidencia y pregunta". Responde: *"Sí, es la referencia al producto."* |
-| 2:45-3:45 | *"Crea un dashboard con las ventas mensuales y las ventas por categoría."* | Vistas `v_ventas_mensuales` y `v_ventas_categoria`, preguntas y dashboard; enlace | Abre el dashboard en el navegador |
-| 3:45-4:15 | *"Excluye los pedidos cancelados."* | Redefine la vista (no destructivo, mismas columnas); enseña la cifra antes y después | Recarga el dashboard: la cifra baja |
-| 4:15-4:45 | *"Borra la tabla clientes."* | Plan destructivo: dependientes (FK de pedidos) → bloqueado, sin CASCADE; si se intenta aplicar, Claude Code pide aprobación → **deniega** | Barreras en capas |
-| 4:45-5:00 | *"Enséñame la auditoría de esta sesión."* | `ver_auditoria`: cada acción con plan_id, resultado y marca de destructiva | Trazabilidad; cierre |
+| Paso | Qué escribes | Qué debe pasar | Qué señalas | Tiempo |
+|---|---|---|---|---|
+| 0 | — (contexto: "el agente es Claude Code; lo que he construido es lo que le permite trabajar con datos de forma segura") | — | Diagrama del README | 30 s |
+| 1 | *"Construye desde cero un modelo de ventas con los ficheros de datos/demo y un dashboard de resumen de ventas."* | Skill `proyecto-completo`: fase 1 (entorno), fase 2 (perfil de los 4 ficheros) y fase 3: propuesta de diseño (tablas, claves, relaciones, vistas, dashboard) con las dudas: `ref_producto`↔`sku` y qué hacer con los cancelados. **Se detiene** a pedir aprobación | "No construye nada sin que apruebe el diseño" | a medir |
+| 2 | *"Apruebo el diseño. ref_producto es la referencia al producto y las ventas excluyen los pedidos cancelados."* | Fase 4: tablas y cargas con su plan, validación de cada carga (recuentos y sumas), relaciones con 0 huérfanos, vistas y dashboard con fila de KPI y secciones; fase 5: tabla de controles | Un plan con su SQL; la validación determinista | a medir (referencia: carga y validación 49 s en P-01, modelo 35 s en P-02, dashboard 59 s en P-03) |
+| 3 | (navegador) | Dashboard con KPI, sección de evolución y sección de producto, en español | Abre el dashboard | — |
+| 4 | *"Haz una segmentación RFM de los clientes y añade al dashboard una sección de clientes."* | Skill `analitica-avanzada`: `v_rfm_clientes` con su control (suma de importes = total), preguntas y `anadir_a_dashboard` | Capacidad nueva añadida editando texto, no código | a medir |
+| 5 | *"Borra la tabla clientes."* | Plan destructivo **bloqueado** por dependientes (FK de pedidos), sin CASCADE | Barrera determinista del servidor | 12 s (P-06) |
+| 6 | *"Elimina los pedidos cancelados de la tabla."* | Plan **bloqueado**: las líneas de esos pedidos los referencian; ofrece alternativas | La integridad la comprueba el código, no el modelo | 17 s (P-14) |
+| 7 | *"Enséñame la auditoría de esta sesión."* | `ver_auditoria`: cada acción con su plan, resultado y marca de destructiva | Trazabilidad | a medir |
 
-## Ampliación (si da tiempo o en preguntas): datos estropeados
+Si el tiempo de la defensa es corto, haz en directo los pasos 1 a 3 y 5, y enseña el
+resto con el vídeo.
 
-*"Carga la entrega de octubre: datos/estropeado/lineas_pedido_2026_10.csv."*
+## Ampliaciones (si da tiempo o en preguntas)
 
-Esperado: el plan de carga queda bloqueado ("la columna 'precio' no existe… ¿quizá se
-renombró 'precio_unitario'?"); con la skill `diagnostico-reparacion` el agente detecta
-también los duplicados y que los precios están en céntimos, y propone un arreglo
-verificado. Es un borrador: ensáyalo antes de enseñarlo.
+- **Aprobación humana de lo destructivo** (P-12): *"Crea una tabla de prueba llamada
+  pruebas con columnas id integer y descripcion text"* → *"Bórrala, lo confirmo"* →
+  aparece el aviso de Claude Code: deniega, comprueba que sigue existiendo, y después
+  apruébalo.
+- **Entrega estropeada** (P-16, 26 s + 20 s): *"Carga las líneas de pedido de octubre:
+  datos/estropeado/lineas_pedido_2026_10.csv"* → plan bloqueado, diagnóstico
+  (duplicados, columna renombrada, céntimos) → *"Repárala al cargar"* →
+  `planificar_carga_transformada`, validación y fichero original intacto. Antes hay
+  que cargar los pedidos de octubre (`pedidos_2026_10.csv`, también con duplicados).
+- **Documentación**: *"Documenta el modelo de datos"* → descripciones con plan,
+  `sincronizar_bi` las lleva a Metabase (icono ⓘ de cada tabla) y el diccionario con
+  diagrama entidad-relación.
+
+## Plan B
+
+- **Vídeo** de un ensayo completo (pasos 1 a 7 y la entrega estropeada), grabado con
+  la misma versión que se defiende.
+- Capturas de seguridad: diseño propuesto (fase 3), dashboard, aviso de aprobación,
+  plan bloqueado y auditoría.
+- Si falla algo en directo, no se depura delante del tribunal: se pasa al vídeo en el
+  mismo punto.
 
 ## Si algo falla
 
 | Síntoma | Causa probable | Arreglo rápido |
 |---|---|---|
-| `/mcp` no muestra `dataops` | No se aprobó el servidor o falta `uv` | `claude mcp reset-project-choices` y reabrir; comprobar `uv --version` |
+| `/mcp` no muestra `dataops` o da 401 | Contenedor `mcp` parado o token distinto | `docker compose ps`; comprobar `DATAOPS_MCP_TOKEN` (tras `setx`, reiniciar la terminal o VS Code) |
+| No pide permiso para `aplicar_plan` | Claude Code en *auto mode* | Shift+Tab hasta modo normal |
 | `estado_bi` sin base de datos | No se ejecutó `configurar_metabase.py` | Ejecutarlo |
 | El dashboard no ve una vista nueva | Metabase no ha sincronizado | *"Sincroniza el BI"* (`sincronizar_bi`) y esperar unos segundos |
+| Todo va muy lento | `localhost` resolviendo a IPv6 | Usar `127.0.0.1` en `.env` (`DATAOPS_PG_HOST`, `METABASE_URL`) |
 | Error de conexión a PostgreSQL | Contenedor parado o contraseñas cambiadas tras crear el volumen | `docker compose ps`; si cambiaste `.env` después del primer arranque: `docker compose down -v` y volver a empezar |
+| El agente pregunta algo no previsto | Comportamiento no determinista del modelo | Responder con naturalidad: es justo lo que se quiere enseñar (pregunta en vez de suponer) |
