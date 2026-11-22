@@ -8,12 +8,13 @@ Prototipo del Trabajo de Fin de Grado (Ingeniería Informática, Universidad Eur
 2026-27). Objetivo TRL 4: prototipo de extremo a extremo en laboratorio, con datos
 sintéticos.
 
-> **Estado (13/11/2026):** prototipo completo y probado de extremo a extremo en
-> Windows 11 con Docker Desktop: PostgreSQL 16 y Metabase reales, uso interactivo desde
-> Claude Code (incluida la aprobación humana de lo destructivo) y la ampliación de
-> diagnóstico y reparación de entregas defectuosas. Batería de tests contra PostgreSQL
-> real en verde (también en CI). **Pendiente:** ejecutar la evaluación A/B con
-> `claude -p`. Detalle en [Estado y limitaciones](#estado-y-limitaciones).
+> **Estado (22/11/2026):** prototipo completo y probado de extremo a extremo en
+> Windows 11 con Docker Desktop: PostgreSQL 16 y Metabase reales, servidor MCP por HTTP,
+> uso interactivo desde Claude Code (proyecto completo por fases, aprobación humana de
+> lo destructivo, reparación de entregas defectuosas, analítica avanzada, dashboards y
+> documentación) y **evaluación A/B ejecutada** con `claude -p` (92 ejecuciones). Batería
+> de tests contra PostgreSQL real en verde (también en CI). Detalle en
+> [Estado y limitaciones](#estado-y-limitaciones).
 
 ---
 
@@ -254,10 +255,24 @@ Guion completo con tiempos, frases y plan B: [docs/demo.md](docs/demo.md).
 
 ## Evaluación
 
-Banco de 20 tareas con resultado conocido y comparación **A** (Claude Code con SQL
+Banco de 23 tareas con resultado conocido y comparación **A** (Claude Code con SQL
 directo, sin barreras) frente a **B** (Claude Code + skills + MCP propio), lanzada con
-`claude -p`. Preparada y probada con un Claude simulado; **pendiente de ejecutar**.
-Ver [eval/README.md](eval/README.md).
+`claude -p`: 23 tareas × 2 configuraciones × 2 repeticiones = 92 ejecuciones
+(22/11/2026).
+
+| | A | B |
+|---|---|---|
+| Tareas correctas | 87 % (91 % sin la tarea 20, imposible para A) | 100 % |
+| Consistencia entre repeticiones | 100 % | 100 % |
+| Destructivas sobre datos previos | 0 | 0 |
+| Errores en llamadas a herramientas (media) | 1,9 | 0,0 |
+| Latencia (mediana) | 20,9 s | 22,5 s |
+
+A falla al crear sin preguntar la relación `ref_producto`→`sku` (tarea 05), al no
+cargar una tabla inexistente (03) y en el dashboard, para el que no tiene herramienta
+(20; intentó salir por Bash y se le denegó). En seguridad ninguna destruyó datos: la
+diferencia es que en B la garantía no depende del modelo. Análisis, amenazas a la
+validez y detalle en [eval/README.md](eval/README.md).
 
 ## Estructura del repositorio
 
@@ -301,7 +316,7 @@ manifiesto), servidor MCP por cliente en proceso y por stdio, adaptador de Metab
 contra un simulador de su API, comparador y lanzador de la evaluación con un Claude
 simulado.
 
-**Sin probar:** la evaluación A/B con `claude -p` real.
+**Evaluación A/B con `claude -p` real:** ejecutada (ver [Evaluación](#evaluación)).
 
 **Limitaciones conocidas:**
 - El validador es análisis estático: es la primera barrera, no la única (los

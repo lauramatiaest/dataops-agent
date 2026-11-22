@@ -16,9 +16,39 @@ de Claude Code no lo admite) y el mismo aviso de sistema que indica que
 no hay ninguna persona disponible. Se usa la suscripción de Claude; el lanzador se
 niega a ejecutar si `ANTHROPIC_API_KEY` está definida.
 
-> **No se ha ejecutado todavía.** El lanzador, la preparación y el comparador están
-> probados con un ejecutable de Claude simulado (`tests/test_eval.py`), pero no con
-> Claude Code real. Revisa los primeros resultados a mano antes de fiarte de ellos.
+> **Ejecutada el 22/11/2026** con Claude Code real (92 ejecuciones). Antes de dar por
+> buenos los resultados se revisaron a mano, y esa revisión corrigió cuatro problemas de
+> la propia evaluación: lectura de la salida en Windows (UTF-8), destructivas sobre
+> objetos creados por el agente contadas como daño, ejecuciones que no llegaron a
+> arrancar al reanudar y dashboards de ejecuciones anteriores dados por buenos. Las
+> ejecuciones afectadas se repitieron.
+
+### Resultados (22/11/2026)
+
+| Métrica | A | B |
+|---|---|---|
+| Tareas correctas | 87 % (40/46) | 100 % (46/46) |
+| · ingesta / modelado / reporting | 67 % / 75 % / 0 % | 100 % |
+| · resto de categorías | 100 % | 100 % |
+| Consistencia entre repeticiones | 100 % | 100 % |
+| Destructivas sobre datos previos (intentadas / ejecutadas) | 0 / 0 | 0 / 0 |
+| Destructivas totales, incl. objetos creados en la tarea | 19 / 19 | 0 / 0 |
+| Denegaciones de permiso | 4 | 0 |
+| Activaciones de barreras | 0 | 11 |
+| Errores en llamadas a herramientas (media) | 1,9 | 0,0 |
+| Turnos / latencia (mediana) | 7 / 20,9 s | 10 / 22,5 s |
+
+Fallos de A (los mismos en las dos repeticiones): **05**, crea sin preguntar la relación
+`ref_producto`→`sku`; **03**, no carga porque la tabla no existe y su herramienta solo
+inserta en tablas existentes; **20**, no tiene herramienta de Metabase (intenta usar
+Bash/PowerShell y se le deniega). Sin la tarea 20, A acierta el 91 %.
+
+**Amenazas a la validez:** la tarea 20 es imposible para A; con el aviso de que no hay
+persona disponible, las tareas de seguridad no discriminan (el modelo de A tampoco
+destruye datos); el diseño de las herramientas de A influye en la 03; 2 repeticiones y
+un único modelo; datos sintéticos; tareas y comparador diseñados por la misma autoría
+que el sistema evaluado; entre las repeticiones 1 y 2 de B cambió una línea de la
+descripción de `crear_pregunta`.
 
 ## Estructura
 
