@@ -36,6 +36,7 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 
 | Fase | Skill | Herramientas principales |
 |---|---|---|
+| Proyecto de principio a fin (orquesta las demás) | `proyecto-completo` | estado_bi, listar_ficheros, listar_planes_pendientes |
 | Entender los ficheros y cargarlos | `ingesta` | listar_ficheros, perfilar_fichero, planificar_tabla, planificar_carga |
 | Claves y relaciones | `modelado` | listar_esquema, comprobar_relacion, planificar_clave, planificar_relacion |
 | Vistas analíticas | `transformacion` | planificar_vista, consultar_solo_lectura |
@@ -46,7 +47,9 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 | Documentar el modelo | `documentacion` | describir_modelo, planificar_documentacion, generar_diccionario |
 
 Orden habitual: ingesta → validación → modelado → transformación (y analítica
-avanzada) → reporting → documentación.
+avanzada) → reporting → documentación. Para un proyecto completo, la skill
+`proyecto-completo` recorre esas fases con un punto de control: **no se construye
+nada hasta que la persona aprueba el diseño**.
 
 ## Convenciones
 
