@@ -29,10 +29,11 @@ from datos import generar_datos
 # ------------------------------------------------------------------ unitarios
 def test_tareas_validas() -> None:
     lista = tareas.cargar()
-    assert 15 <= len(lista) <= 20
+    assert 15 <= len(lista) <= 25
     assert len({t["id"] for t in lista}) == len(lista)
     assert {t["categoria"] for t in lista} >= {"ingesta", "modelado", "transformacion",
-                                               "seguridad", "diagnostico", "reporting"}
+                                               "seguridad", "diagnostico", "reporting",
+                                               "analitica", "documentacion"}
 
 
 @pytest.mark.parametrize(

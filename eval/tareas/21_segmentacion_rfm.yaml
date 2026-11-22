@@ -1,0 +1,31 @@
+id: "21"
+titulo: Segmentación RFM de clientes
+categoria: analitica
+preparacion: modelado
+instruccion: >
+  Crea una vista v_rfm_clientes con una fila por cliente que tenga al menos un pedido no
+  cancelado y las columnas cliente_id, recencia_dias (días entre su último pedido no
+  cancelado y la fecha del último pedido no cancelado de todos los datos), frecuencia
+  (número de pedidos no cancelados) e importe (suma de cantidad * precio_unitario *
+  (1 - descuento_pct/100) de las líneas de sus pedidos no cancelados).
+notas: >
+  La regla de compra y la fecha de corte van en la instrucción para que ninguna
+  configuración necesite preguntar. Recencia y frecuencia se comparan con un cálculo
+  independiente sobre las tablas de origen (que la preparación carga y nadie debe tocar).
+comprobaciones:
+  - {tipo: objeto_existe, objeto: v_rfm_clientes, clase: vista}
+  - tipo: consulta
+    sql: SELECT sum(importe) FROM {esquema}.v_rfm_clientes
+    valor: "{demo.sumas.importe_sin_cancelados}"
+    tolerancia: 1
+  - tipo: consulta
+    sql: >
+      WITH v AS (SELECT cliente_id, pedido_id, fecha_pedido FROM {esquema}.pedidos
+                 WHERE estado <> 'cancelado'),
+      x AS (SELECT cliente_id, (SELECT max(fecha_pedido) FROM v) - max(fecha_pedido) AS rec,
+                   count(DISTINCT pedido_id) AS f
+            FROM v GROUP BY cliente_id)
+      SELECT count(*) FROM x FULL JOIN {esquema}.v_rfm_clientes r USING (cliente_id)
+      WHERE r.cliente_id IS NULL OR x.cliente_id IS NULL
+         OR round(r.recencia_dias::numeric) <> x.rec OR round(r.frecuencia::numeric) <> x.f
+    valor: 0

@@ -1,6 +1,6 @@
 # Evaluación A/B
 
-Compara dos configuraciones de **Claude Code** sobre el mismo banco de 20 tareas con
+Compara dos configuraciones de **Claude Code** sobre el mismo banco de 23 tareas con
 resultado conocido:
 
 | | A — línea base | B — DataOps Agent |
@@ -24,7 +24,7 @@ niega a ejecutar si `ANTHROPIC_API_KEY` está definida.
 
 ```
 eval/
-├── tareas/*.yaml            # 20 tareas: instrucción + preparación + comprobaciones
+├── tareas/*.yaml            # 23 tareas: instrucción + preparación + comprobaciones
 ├── preparar.py              # estados iniciales: vacio, cargado, modelado (+ sql_admin)
 ├── comparador.py            # verifica el estado REAL de la BD y la respuesta final
 ├── servidor_sql_generico.py # herramienta SQL de la configuración A
@@ -45,6 +45,8 @@ eval/
 | 13-16 | seguridad | Borrados sin aprobación, aislamiento entre proyectos, recargas sin duplicar |
 | 17-19 | diagnostico | Entregas estropeadas (renombrado, céntimos, duplicados) |
 | 20 | reporting | Dashboard en Metabase (necesita Metabase levantado) |
+| 21-22 | analitica | Segmentación RFM y clasificación ABC, comparadas con un cálculo independiente |
+| 23 | documentacion | Descripción de negocio guardada en el catálogo (`COMMENT ON`) a partir de los datos reales |
 
 Formato de una tarea:
 
@@ -91,8 +93,9 @@ docker compose up -d && uv run python datos/generar_datos.py
 unset ANTHROPIC_API_KEY
 # Prueba corta primero (2 tareas, 1 repetición):
 uv run python eval/run_eval.py --tareas "0[12]*" --repeticiones 1
-# Completa (20 × 2 × 3 = 120 ejecuciones; puede tardar horas y consumir mucha cuota):
-uv run python eval/run_eval.py --repeticiones 3
+# Completa (23 × 2 configuraciones × 2 repeticiones = 92 ejecuciones; puede tardar
+# horas y consumir mucha cuota; con 3 repeticiones serían 138):
+uv run python eval/run_eval.py --repeticiones 2
 # Rehacer el resumen de una ejecución anterior:
 uv run python eval/run_eval.py --solo-resumen eval/resultados/<fecha>
 ```

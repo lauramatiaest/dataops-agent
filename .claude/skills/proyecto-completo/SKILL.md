@@ -1,6 +1,6 @@
 ---
 name: proyecto-completo
-description: Orquesta un proyecto de datos de principio a fin en seis fases (configuración, descubrimiento, diseño, construcción, validación y documentación) con un punto de control humano para aprobar el diseño antes de construir. Úsala cuando la persona pida construir un modelo o un dashboard "desde cero", "completo", "de principio a fin" a partir de unos ficheros, o retomar un proyecto a medias.
+description: Orquesta un proyecto de datos de principio a fin en seis fases (configuración, descubrimiento, diseño, construcción, validación y documentación) con un punto de control humano para aprobar el diseño antes de construir. Úsala cuando la persona pida construir un modelo o un dashboard "desde cero", "completo", "de principio a fin" a partir de unos ficheros, o retomar un proyecto a medias. No la uses para peticiones concretas (cargar un fichero, crear una vista o un dashboard), que resuelven las skills de cada fase.
 ---
 
 # Proyecto completo por fases

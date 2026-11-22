@@ -1,0 +1,41 @@
+id: "22"
+titulo: Clasificación ABC (Pareto) de productos
+categoria: analitica
+preparacion: modelado
+instruccion: >
+  Las líneas se relacionan con los productos mediante lineas_pedido.ref_producto =
+  productos.sku. Crea una vista v_abc_productos con una fila por producto del catálogo,
+  también los que no tengan ventas, y las columnas sku, importe (importe neto con
+  descuento de sus líneas, sin pedidos cancelados) y clase_abc: ordenando los productos
+  por importe de mayor a menor, son 'A' los que llevan el importe acumulado hasta el
+  80 % del total (incluido el que cruza ese umbral), 'B' los siguientes hasta el 95 % y
+  'C' el resto.
+notas: >
+  La clase se compara con un cálculo independiente. Tolerancia de 1 producto por si una
+  implementación correcta resuelve distinto un caso exactamente en el umbral.
+comprobaciones:
+  - {tipo: objeto_existe, objeto: v_abc_productos, clase: vista}
+  - tipo: consulta
+    sql: SELECT count(*) FROM {esquema}.v_abc_productos
+    valor: "{demo.filas.productos}"
+  - tipo: consulta
+    sql: SELECT sum(importe) FROM {esquema}.v_abc_productos
+    valor: "{demo.sumas.importe_sin_cancelados}"
+    tolerancia: 1
+  - tipo: consulta
+    sql: >
+      WITH v AS (SELECT l.ref_producto,
+                        round(l.cantidad * l.precio_unitario * (1 - l.descuento_pct / 100.0), 2) AS imp
+                 FROM {esquema}.lineas_pedido l
+                 JOIN {esquema}.pedidos p ON p.pedido_id = l.pedido_id
+                 WHERE p.estado <> 'cancelado'),
+      pp AS (SELECT pr.sku, coalesce(sum(v.imp), 0) AS imp
+             FROM {esquema}.productos pr LEFT JOIN v ON v.ref_producto = pr.sku GROUP BY pr.sku),
+      a AS (SELECT sku, sum(imp) OVER (ORDER BY imp DESC, sku ROWS UNBOUNDED PRECEDING) - imp AS previo,
+                   sum(imp) OVER () AS total FROM pp),
+      x AS (SELECT sku, CASE WHEN 100 * previo / total < 80 THEN 'A'
+                             WHEN 100 * previo / total < 95 THEN 'B' ELSE 'C' END AS clase FROM a)
+      SELECT count(*) FROM x FULL JOIN {esquema}.v_abc_productos r USING (sku)
+      WHERE r.sku IS NULL OR x.sku IS NULL OR upper(trim(r.clase_abc::text)) <> x.clase
+    valor: 0
+    tolerancia: 1
