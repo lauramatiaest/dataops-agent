@@ -224,9 +224,9 @@ claude
 2. Escribe `/mcp` y comprueba que `dataops` aparece conectado con sus herramientas.
 3. Prueba: *"Lista los ficheros de datos y perfila demo/pedidos.csv"*.
 
-**Alternativa sin Docker (stdio):** `.mcp.stdio.json` lanza el servidor como proceso
-hijo de Claude Code (`claude --mcp-config .mcp.stdio.json --strict-mcp-config`). Es el
-transporte que usan los tests y la evaluación, que arranca un servidor limpio por tarea.
+El servidor también admite el transporte stdio (`DATAOPS_MCP_TRANSPORTE=stdio`, valor por
+defecto fuera de Docker): es el que usan los tests y la evaluación, que arranca un
+servidor limpio por tarea con su propia configuración.
 
 Tras cambiar código del servidor: `docker compose up -d --build mcp`.
 
@@ -281,7 +281,6 @@ validez y detalle en [eval/README.md](eval/README.md).
 ├── .claude/skills/<skill>/SKILL.md
 ├── .claude/settings.json         # permisos (allow / ask / deny)
 ├── .mcp.json                     # servidor MCP del proyecto (HTTP + token)
-├── .mcp.stdio.json               # alternativa: servidor como proceso hijo (stdio)
 ├── Dockerfile                    # imagen del servidor MCP (servicio mcp)
 ├── docker-compose.yml            # PostgreSQL 16 + Metabase v0.64.2.8
 ├── docker/postgres/init/         # inicialización (roles, auditoría, esquema)
@@ -338,13 +337,8 @@ simulado.
 - Las descripciones del modelo sustituyen al publicarse las que se hayan editado a mano
   en Metabase: el modelo es la fuente de verdad.
 
-## Uso de IA en el desarrollo
+## Propiedad intelectual
 
-Este prototipo se ha desarrollado con ayuda de **Claude Code** (Anthropic), que ha
-generado gran parte del código y la documentación bajo la dirección de la autora. Cada
-commit lo declara con el trailer `Co-Authored-By: Claude`. El uso de IA en el TFG
-está sujeto a la autorización del tutor según el plan de trabajo de la asignatura.
-
-## Licencia
-
-MIT. Ver [LICENSE](LICENSE).
+Trabajo de Fin de Grado protegido por la Ley de Propiedad Intelectual; los derechos
+corresponden a la autora (art. 6 de la Normativa General de TFG/TFM de la Universidad
+Europea). Todos los derechos reservados.

@@ -21,9 +21,7 @@ from dataops_agent.servidor import crear_servidor
 RAIZ = Path(__file__).resolve().parent.parent
 SKILLS = sorted((RAIZ / ".claude" / "skills").glob("*/SKILL.md"))
 VERBOS = r"(?:listar|perfilar|consultar|comprobar|validar|ver|planificar|aplicar|estado|" \
-         r"sincronizar|crear|actualizar|anadir|trazar)_[a-z_]+"
-# Herramientas futuras que el borrador de la ampliación menciona como pendientes.
-FUTURAS = {"trazar_linaje", "planificar_transformacion_carga"}
+         r"sincronizar|crear|actualizar|anadir|describir|generar|descartar)_[a-z_]+"
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +63,7 @@ def test_skill_bien_formada(ruta: Path) -> None:
 )
 def test_menciona_solo_herramientas_existentes(ruta: Path, herramientas: set[str]) -> None:
     mencionadas = set(re.findall(rf"\b{VERBOS}\b", ruta.read_text(encoding="utf-8")))
-    desconocidas = mencionadas - herramientas - FUTURAS
+    desconocidas = mencionadas - herramientas
     assert not desconocidas, f"{ruta.name} menciona herramientas inexistentes: {desconocidas}"
 
 
@@ -79,13 +77,11 @@ def test_permisos_apuntan_a_herramientas_reales(herramientas: set[str]) -> None:
 
 
 def test_mcp_json() -> None:
-    """Por defecto, servidor independiente por HTTP con token; stdio como alternativa."""
+    """Servidor independiente por HTTP con token."""
     http = json.loads((RAIZ / ".mcp.json").read_text())["mcpServers"]["dataops"]
     assert http["type"] == "http"
     assert http["url"].endswith("127.0.0.1:8080/mcp}")
     assert http["headers"]["Authorization"] == "Bearer ${DATAOPS_MCP_TOKEN}"
-    stdio = json.loads((RAIZ / ".mcp.stdio.json").read_text())["mcpServers"]["dataops"]
-    assert stdio["type"] == "stdio"
 
 
 def test_contenedor_mcp_minimo_privilegio() -> None:

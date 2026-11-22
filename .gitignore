@@ -21,5 +21,6 @@ eval/resultados/
 # Claude Code: ajustes personales (los del proyecto sí se versionan)
 .claude/settings.local.json
 
-# Sistema
+# Editor y sistema
+.vscode/
 .DS_Store

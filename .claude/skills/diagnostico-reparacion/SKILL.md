@@ -50,5 +50,6 @@ description: Diagnostica y repara entregas de datos defectuosas (filas duplicada
 
 - Solo hay tres transformaciones (renombrar, dividir por 10/100/1000 y quitar
   duplicados exactos); no hay expresiones libres a propósito.
-- Linaje automático (`trazar_linaje`: qué dashboards dependen de una tabla) pendiente;
-  hoy se reconstruye a mano con `ver_auditoria` y los dependientes de los planes.
+- Para saber de qué fichero sale una tabla y qué vistas y dashboards dependen de ella
+  (por ejemplo, antes de recargar una entrega), usa `describir_modelo` (skill
+  `documentacion`).
