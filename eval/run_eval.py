@@ -268,12 +268,14 @@ def ejecutar_una(
     try:
         proceso = subprocess.run(
             comando(configuracion, tarea["instruccion"].strip(), ruta_mcp, args),
-            cwd=cwd, env=entorno, capture_output=True, text=True, timeout=args.timeout,
-            check=False,
+            cwd=cwd, env=entorno, capture_output=True, timeout=args.timeout, check=False,
+            # Claude Code escribe en UTF-8; sin esto, Windows lee con cp1252 y falla.
+            text=True, encoding="utf-8", errors="replace",
         )
-        salida, error, codigo = proceso.stdout, proceso.stderr, proceso.returncode
+        salida, error, codigo = proceso.stdout or "", proceso.stderr or "", proceso.returncode
     except subprocess.TimeoutExpired as caducado:
-        salida = (caducado.stdout or "") if isinstance(caducado.stdout, str) else ""
+        parcial = caducado.stdout or ""
+        salida = parcial.decode("utf-8", "replace") if isinstance(parcial, bytes) else parcial
         error, codigo = f"timeout tras {args.timeout} s", -1
     finally:
         if configuracion == "A":

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from dataops_agent.planes import Paso
 
 LONGITUD_MAXIMA = 500
+_CREATE = re.compile(r"CREATE TABLE\s+(\w+)\.(\w+)\s*\(", re.IGNORECASE)
 _COPY = re.compile(r"COPY\s+(\w+)\.(\w+)\s*\(.*?\)\s*FROM STDIN\s+--\s*datos de\s+([^\s;]+)")
 
 
@@ -86,7 +87,10 @@ def linaje_cargas(eventos: Iterable[Mapping[str, Any]], esquema: str) -> dict[st
 
     Un plan de carga queda auditado al planificarse (con su SQL ``COPY ... -- datos de
     <fichero>`` y, si la hubo, la transformación) y otra vez al aplicarse (mismo
-    ``plan_id``). Solo cuentan los planes aplicados con éxito.
+    ``plan_id``). Solo cuentan los planes aplicados con éxito y, si la auditoría registra
+    la creación de la tabla, solo las cargas posteriores a su **última** creación: la
+    auditoría es acumulativa y una tabla borrada y vuelta a crear (o un proyecto
+    reiniciado) no hereda el linaje de la anterior con el mismo nombre.
     """
     eventos = list(eventos)
     aplicados = {
@@ -96,6 +100,14 @@ def linaje_cargas(eventos: Iterable[Mapping[str, Any]], esquema: str) -> dict[st
         and e.get("resultado") == "ok"
         and e.get("plan_id")
     }
+    creada: dict[str, str] = {}
+    for e in eventos:
+        instante = aplicados.get(e.get("plan_id"))
+        if instante is None:
+            continue
+        for esq, tabla in _CREATE.findall(e.get("sql") or ""):
+            if esq == esquema and instante > creada.get(tabla, ""):
+                creada[tabla] = instante
     linaje: dict[str, list[dict]] = {}
     for e in eventos:
         plan_id = e.get("plan_id")
@@ -103,7 +115,7 @@ def linaje_cargas(eventos: Iterable[Mapping[str, Any]], esquema: str) -> dict[st
             continue
         for coincidencia in _COPY.finditer(e.get("sql") or ""):
             esq, tabla, fichero = coincidencia.groups()
-            if esq != esquema:
+            if esq != esquema or aplicados[plan_id] < creada.get(tabla, ""):
                 continue
             detalle = e.get("detalle") or {}
             transformacion = {

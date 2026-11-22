@@ -41,6 +41,37 @@ def test_linaje_solo_cargas_aplicadas() -> None:
     assert linaje_cargas(EVENTOS, "otro_esquema") == {}
 
 
+def test_linaje_ignora_cargas_anteriores_a_recrear_la_tabla() -> None:
+    """La auditoría acumula sesiones: tras recrear la tabla, lo anterior no es su linaje."""
+    eventos = [
+        {"operacion": "PLAN TABLA", "plan_id": "t1",
+         "sql": "CREATE TABLE proyecto_demo.lineas (\n    linea_id integer);"},
+        {"operacion": "APLICAR", "resultado": "ok", "plan_id": "t1",
+         "instante": "2026-11-13T09:00:00+00:00"},
+        {"operacion": "PLAN CARGA TRANSFORMADA", "plan_id": "c1",
+         "sql": "COPY proyecto_demo.lineas (linea_id) FROM STDIN  -- datos de rota.csv;"},
+        {"operacion": "APLICAR", "resultado": "ok", "plan_id": "c1",
+         "instante": "2026-11-13T10:00:00+00:00"},
+        # Proyecto reiniciado y tabla creada de nuevo:
+        {"operacion": "PLAN TABLA", "plan_id": "t2",
+         "sql": "CREATE TABLE proyecto_demo.lineas (\n    linea_id integer);"},
+        {"operacion": "APLICAR", "resultado": "ok", "plan_id": "t2",
+         "instante": "2026-11-22T16:00:00+00:00"},
+        {"operacion": "PLAN CARGA", "plan_id": "c2",
+         "sql": "COPY proyecto_demo.lineas (linea_id) FROM STDIN  -- datos de demo.csv;"},
+        {"operacion": "APLICAR", "resultado": "ok", "plan_id": "c2",
+         "instante": "2026-11-22T16:05:00+00:00"},
+        # Una tabla de otro esquema con el mismo nombre no cuenta:
+        {"operacion": "PLAN TABLA", "plan_id": "t3",
+         "sql": "CREATE TABLE otro.lineas (\n    linea_id integer);"},
+        {"operacion": "APLICAR", "resultado": "ok", "plan_id": "t3",
+         "instante": "2026-11-23T00:00:00+00:00"},
+    ]
+    assert [c["fichero"] for c in linaje_cargas(eventos, "proyecto_demo")["lineas"]] == [
+        "demo.csv"
+    ]
+
+
 def test_textos_y_sql_legible() -> None:
     assert normalizar_texto("  Una  fila\npor pedido ", "x") == "Una fila por pedido"
     with pytest.raises(ValueError, match="vacía"):
