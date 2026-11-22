@@ -24,7 +24,7 @@ description: Crea preguntas y dashboards en la herramienta de BI (Metabase) sobr
 | Una cifra y su variación frente al periodo anterior | `tendencia` | SQL con fecha y cifra ordenado por fecha; `eje_x`, `series` |
 | Una cifra frente a una meta que da la persona | `progreso` | `objetivo` (obligatorio) |
 | Evolución en el tiempo | `lineas` o `area` | `eje_x: mes`, `series`, `titulo_y` |
-| Dos magnitudes en el tiempo (importe y pedidos) | `combinado` | la primera serie va en barras y las demás en línea |
+| Dos magnitudes en el tiempo (importe y pedidos) | `combinado` | `series: ["importe", "pedidos"]`: la primera en barras y las demás en línea, cada una en su eje con su nombre (no pongas `titulo_y`) |
 | Comparar categorías | `barras` / `barras_horizontales` (nombres largos o top N) | `mostrar_valores` |
 | Composición por categoría y periodo (importe por mes y canal) | `barras` o `area` | `eje_x: mes`, `desglose: canal`, `apilado: true` |
 | Reparto de un total (≤ 6 categorías) | `tarta` | `eje_x`, `series` |

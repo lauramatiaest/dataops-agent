@@ -441,7 +441,10 @@ def ajustes_visualizacion(visualizacion: str, ajustes: Ajustes) -> dict[str, Any
                            else list(ajustes.series))
     if ajustes.titulo_x:
         vs["graph.x_axis.title_text"] = ajustes.titulo_x
-    if ajustes.titulo_y:
+    # Con doble eje (combinado con varias series) Metabase pone este título en los DOS
+    # ejes; sin él, cada eje lleva el nombre de su serie, que es lo correcto.
+    doble_eje = visualizacion == "combinado" and len(ajustes.series) > 1
+    if ajustes.titulo_y and not doble_eje:
         vs["graph.y_axis.title_text"] = ajustes.titulo_y
     if ajustes.apilado:
         vs["stackable.stack_type"] = "stacked"

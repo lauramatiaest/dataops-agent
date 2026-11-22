@@ -277,9 +277,9 @@ def test_ajustes_se_traducen_a_metabase(cfg_mb: Config, simulado: MetabaseSimula
         "eje_x": "mes", "series": ["importe", "pedidos"], "titulo_y": "Euros",
         "apilado": True, "mostrar_valores": True, "formatos": {"importe": "moneda"},
     })
-    mb.crear_pregunta(Pregunta("Ventas", "SELECT 1", "combinado", ajustes=ajustes))
+    mb.crear_pregunta(Pregunta("Ventas", "SELECT 1", "barras", ajustes=ajustes))
     card = simulado.cards[100]
-    assert card["display"] == "combo"
+    assert card["display"] == "bar"
     vs = card["visualization_settings"]
     assert vs["graph.dimensions"] == ["mes"] and vs["graph.metrics"] == ["importe", "pedidos"]
     assert vs["graph.y_axis.title_text"] == "Euros"
@@ -303,6 +303,20 @@ def test_ajustes_segun_visualizacion(
     ajustes = Ajustes.desde_dict({"eje_x": "categoria", "series": ["importe"]})
     mb.crear_pregunta(Pregunta("p", "SELECT 1", visualizacion, ajustes=ajustes))
     assert simulado.cards[100]["visualization_settings"] == esperado
+
+
+def test_combinado_con_doble_eje_no_repite_el_titulo(
+    cfg_mb: Config, simulado: MetabaseSimulado
+) -> None:
+    """Metabase pondría el mismo título en los dos ejes (visto en Metabase real)."""
+    mb = _adaptador(cfg_mb, simulado)
+    dos = Ajustes.desde_dict({"eje_x": "mes", "series": ["importe", "pedidos"],
+                              "titulo_y": "Importe (€)"})
+    una = Ajustes.desde_dict({"eje_x": "mes", "series": ["importe"], "titulo_y": "Importe (€)"})
+    mb.crear_pregunta(Pregunta("a", "SELECT 1", "combinado", ajustes=dos))
+    mb.crear_pregunta(Pregunta("b", "SELECT 1", "combinado", ajustes=una))
+    assert "graph.y_axis.title_text" not in simulado.cards[100]["visualization_settings"]
+    assert simulado.cards[101]["visualization_settings"]["graph.y_axis.title_text"] == "Importe (€)"
 
 
 def test_desglose_por_segunda_dimension(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
