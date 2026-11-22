@@ -184,6 +184,10 @@ def test_barreras(entorno, conn_admin: psycopg.Connection) -> None:
     hecho = sesion.llamar("aplicar_plan_destructivo", plan_id=borrado["plan_id"],
                           motivo="La persona pidió borrar la tabla de prueba")
     assert hecho["estado"] == "aplicado"
+    # El motivo queda en la auditoría y ver_auditoria lo enseña (lo echó en falta el agente):
+    ultimo = sesion.llamar("ver_auditoria", ultimos=1)["eventos"][-1]
+    assert ultimo["herramienta"] == "aplicar_plan_destructivo"
+    assert ultimo["motivo"] == "La persona pidió borrar la tabla de prueba"
 
     eventos = conn_admin.execute(
         "SELECT herramienta, resultado, destructiva FROM dataops_meta.auditoria "

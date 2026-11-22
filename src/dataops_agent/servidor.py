@@ -326,11 +326,21 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
 
     @servidor.tool(annotations=_LECTURA)
     def ver_auditoria(ultimos: int = 20) -> dict[str, Any]:
-        """Últimos eventos del registro de auditoría (quién, qué, cuándo, resultado)."""
+        """Últimos eventos del registro de auditoría (quién, qué, cuándo, resultado y, si los
+        hay, el motivo dado al aplicar o descartar, los bloqueos y el error)."""
         eventos = s.auditoria.leer_jsonl()[-max(1, min(ultimos, 200)):]
         campos = ("instante", "actor", "herramienta", "operacion", "plan_id", "resultado",
                   "destructiva", "sql")
-        return {"ok": True, "eventos": [{k: e.get(k) for k in campos} for e in eventos]}
+
+        def resumen(e: dict[str, Any]) -> dict[str, Any]:
+            fila = {k: e.get(k) for k in campos}
+            detalle = e.get("detalle") or {}
+            for clave in ("motivo", "bloqueos", "errores", "error"):
+                if detalle.get(clave):
+                    fila[clave] = detalle[clave]
+            return fila
+
+        return {"ok": True, "eventos": [resumen(e) for e in eventos]}
 
     @servidor.tool(annotations=_LECTURA)
     def listar_planes_pendientes() -> dict[str, Any]:
