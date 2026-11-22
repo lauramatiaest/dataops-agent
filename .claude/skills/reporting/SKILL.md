@@ -26,14 +26,14 @@ description: Crea preguntas y dashboards en la herramienta de BI (Metabase) sobr
 | Evolución en el tiempo | `lineas` o `area` | `eje_x: mes`, `series`, `titulo_y` |
 | Dos magnitudes en el tiempo (importe y pedidos) | `combinado` | la primera serie va en barras y las demás en línea |
 | Comparar categorías | `barras` / `barras_horizontales` (nombres largos o top N) | `mostrar_valores` |
-| Composición por categoría y periodo | `barras` o `area` con `apilado: true` | |
+| Composición por categoría y periodo (importe por mes y canal) | `barras` o `area` | `eje_x: mes`, `desglose: canal`, `apilado: true` |
 | Reparto de un total (≤ 6 categorías) | `tarta` | `eje_x`, `series` |
 | Pasos sucesivos (visitas → pedidos) | `embudo` | |
 | Aportación de cada parte a un total | `cascada` | |
 | Relación entre dos medidas por elemento | `dispersion` | `eje_x`, `series` |
 | Detalle o ranking con varias columnas | `tabla` | `formatos` |
 
-Ajustes (`ajustes` en `crear_pregunta` y `actualizar_pregunta`): `eje_x`, `series`,
+Ajustes (`ajustes` en `crear_pregunta` y `actualizar_pregunta`): `eje_x`, `desglose`, `series`,
 `titulo_x`, `titulo_y`, `apilado`, `mostrar_valores`, `formatos` y `objetivo`.
 - `formatos`: `{columna: moneda | porcentaje | entero | decimal}`. Usa `moneda` (euros)
   **solo si la moneda está confirmada** en la documentación o por la persona; si no,
@@ -88,7 +88,9 @@ existe, una vista por canal):
 - Sección "Evolución": importe y pedidos por mes (`combinado`, `ancho`).
 - Sección "Producto": importe por categoría (`barras_horizontales`, `medio`) y
   reparto por categoría (`tarta`, `medio`).
-- Sección "Canal" (si hay vista): importe por canal y mes (`barras` apiladas, `ancho`).
+- Sección "Canal" (si hay vista): importe por mes desglosado por canal (`barras`,
+  `desglose: canal`, `apilado: true`, `ancho`). Sin `desglose`, las filas de cada canal
+  se pintan como una sola serie y el canal no se ve.
 
 **Clientes** (requiere `v_rfm_clientes` y `v_cohortes_clientes`, skill
 `analitica-avanzada`):

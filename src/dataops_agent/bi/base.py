@@ -26,8 +26,8 @@ FORMATOS = ("moneda", "porcentaje", "entero", "decimal")
 # Tamaños de tarjeta de un dashboard, de menor a mayor.
 TAMANOS = ("kpi", "tercio", "medio", "ancho")
 
-_CLAVES_AJUSTES = ("eje_x", "series", "titulo_x", "titulo_y", "apilado", "mostrar_valores",
-                   "formatos", "objetivo")
+_CLAVES_AJUSTES = ("eje_x", "desglose", "series", "titulo_x", "titulo_y", "apilado",
+                   "mostrar_valores", "formatos", "objetivo")
 
 
 class ErrorBI(RuntimeError):
@@ -48,6 +48,9 @@ class Ajustes:
 
     * ``eje_x``: columna de categorías o fechas; ``series``: columnas numéricas a pintar
       (en un KPI, la primera es la cifra que se muestra).
+    * ``desglose``: segunda columna de categorías que parte cada valor del eje en una
+      serie por categoría (p. ej. importe por mes desglosado por canal); con ``apilado``
+      las series se apilan.
     * ``titulo_x`` / ``titulo_y``: títulos de los ejes.
     * ``apilado``: barras o áreas apiladas; ``mostrar_valores``: etiqueta cada punto.
     * ``formatos``: ``{columna: moneda | porcentaje | entero | decimal}``. ``porcentaje``
@@ -56,6 +59,7 @@ class Ajustes:
     """
 
     eje_x: str | None = None
+    desglose: str | None = None
     series: tuple[str, ...] = ()
     titulo_x: str | None = None
     titulo_y: str | None = None
@@ -96,8 +100,11 @@ class Ajustes:
         for clave in ("apilado", "mostrar_valores"):
             if not isinstance(datos.get(clave, False), bool):
                 raise ValueError(f"'{clave}' debe ser true o false.")
+        if datos.get("desglose") is not None and datos.get("eje_x") is None:
+            raise ValueError("'desglose' necesita también 'eje_x'.")
         return cls(
             eje_x=_texto_opcional(datos.get("eje_x"), "eje_x"),
+            desglose=_texto_opcional(datos.get("desglose"), "desglose"),
             series=tuple(series),
             titulo_x=_texto_opcional(datos.get("titulo_x"), "titulo_x"),
             titulo_y=_texto_opcional(datos.get("titulo_y"), "titulo_y"),

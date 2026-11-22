@@ -432,8 +432,10 @@ def ajustes_visualizacion(visualizacion: str, ajustes: Ajustes) -> dict[str, Any
         if visualizacion == "tendencia" and ajustes.eje_x:
             vs["graph.dimensions"] = [ajustes.eje_x]
     else:
-        if ajustes.eje_x:
-            vs[dimension] = ajustes.eje_x if dimension != "graph.dimensions" else [ajustes.eje_x]
+        if ajustes.eje_x and dimension != "graph.dimensions":
+            vs[dimension] = ajustes.eje_x
+        elif ajustes.eje_x:
+            vs[dimension] = [ajustes.eje_x, *([ajustes.desglose] if ajustes.desglose else [])]
         if ajustes.series:
             vs[metrica] = (ajustes.series[0] if metrica != "graph.metrics"
                            else list(ajustes.series))
@@ -488,7 +490,9 @@ def colocar(
                 alto, ajustes = 1, _tarjeta_virtual("heading", elemento.seccion)
             else:
                 texto = elemento.texto or ""
-                alto = min(max(2, texto.count("\n") + 1), 6)
+                # Una fila de rejilla por cada ~180 caracteres o salto de línea.
+                lineas = sum(1 + len(linea) // 180 for linea in texto.splitlines() or [""])
+                alto = min(max(1, lineas), 6)
                 ajustes = _tarjeta_virtual("text", texto)
             tarjetas.append({"id": nuevo_id, "card_id": None, "row": fila, "col": 0,
                              "size_x": _ANCHO_REJILLA, "size_y": alto,

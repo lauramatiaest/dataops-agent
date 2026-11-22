@@ -305,6 +305,24 @@ def test_ajustes_segun_visualizacion(
     assert simulado.cards[100]["visualization_settings"] == esperado
 
 
+def test_desglose_por_segunda_dimension(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    """Importe por mes desglosado por canal: dos dimensiones, una serie por canal."""
+    mb = _adaptador(cfg_mb, simulado)
+    ajustes = Ajustes.desde_dict({"eje_x": "mes", "desglose": "canal", "series": ["importe"],
+                                  "apilado": True})
+    mb.crear_pregunta(Pregunta("Canal", "SELECT 1", "barras", ajustes=ajustes))
+    vs = simulado.cards[100]["visualization_settings"]
+    assert vs["graph.dimensions"] == ["mes", "canal"] and vs["graph.metrics"] == ["importe"]
+    assert vs["stackable.stack_type"] == "stacked"
+    with pytest.raises(ValueError, match="eje_x"):
+        Ajustes.desde_dict({"desglose": "canal"})
+
+
+def test_texto_largo_ocupa_mas_filas() -> None:
+    largo = colocar([Elemento(texto="x" * 400)])
+    assert largo[0]["size_y"] == 3
+
+
 def test_progreso_necesita_objetivo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
     with pytest.raises(ValueError, match="objetivo"):
         Pregunta("p", "SELECT 1", "progreso")
@@ -354,8 +372,8 @@ def test_colocar_por_filas_con_secciones() -> None:
         (None, 6, 0, 24, 1),                   # la sección cierra la fila
         (6, 7, 0, 12, 6), (7, 7, 12, 12, 6),
         (8, 13, 0, 24, 7),
-        (None, 20, 0, 24, 2),                  # texto
-        (9, 22, 0, 8, 6),
+        (None, 20, 0, 24, 1),                  # texto corto: una fila
+        (9, 21, 0, 8, 6),
     ]
     assert t[5]["visualization_settings"]["virtual_card"]["display"] == "heading"
     assert t[5]["visualization_settings"]["text"] == "Evolución"

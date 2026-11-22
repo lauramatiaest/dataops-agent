@@ -540,7 +540,8 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         cifra), progreso (KPI frente a un objetivo), combinado (barras + líneas),
         dispersion, embudo o cascada.
 
-        ajustes (opcional): eje_x (columna), series (columnas numéricas), titulo_x,
+        ajustes (opcional): eje_x (columna), desglose (segunda columna de categorías:
+        una serie por valor, p. ej. canal), series (columnas numéricas), titulo_x,
         titulo_y, apilado (bool), mostrar_valores (bool), formatos ({columna: moneda |
         porcentaje | entero | decimal}; porcentaje espera valores 0-100) y objetivo
         (obligatorio en progreso)."""
