@@ -35,6 +35,14 @@ class MetabaseSimulado:
         self.bases: list[dict[str, Any]] = [{"id": 2, "name": "DataOps (solo lectura)"}]
         self.cards: dict[int, dict[str, Any]] = {}
         self.dashboards: dict[int, dict[str, Any]] = {}
+        # Metadatos tal como los devuelve GET /api/database/:id/metadata.
+        self.tablas: list[dict[str, Any]] = [
+            {"id": 7, "name": "clientes", "schema": "proyecto_test",
+             "description": "Altas entre 2024-01-01 y 2026-06-30",  # la primera importada
+             "fields": [{"id": 70, "name": "cliente_id", "description": None},
+                        {"id": 71, "name": "segmento", "description": "Tipo de cliente."}]},
+            {"id": 8, "name": "clientes", "schema": "public", "description": None, "fields": []},
+        ]
 
     def __call__(self, peticion: httpx.Request) -> httpx.Response:
         self.peticiones.append(peticion)
@@ -66,6 +74,18 @@ class MetabaseSimulado:
             nueva = {"id": 10 + len(self.bases), "name": cuerpo["name"]}
             self.bases.append(nueva)
             return httpx.Response(200, json=nueva)
+        if ruta.endswith("/metadata") and metodo == "GET":
+            return httpx.Response(200, json={"id": 2, "tables": self.tablas})
+        if (ruta.startswith(("/api/table/", "/api/field/"))) and metodo == "PUT":
+            assert set(cuerpo) == {"description"}
+            objeto_id = int(ruta.rsplit("/", 1)[1])
+            for tabla in self.tablas:
+                for objeto in [tabla, *tabla["fields"]]:
+                    es_tabla = objeto is tabla
+                    if objeto["id"] == objeto_id and es_tabla == ruta.startswith("/api/table/"):
+                        objeto["description"] = cuerpo["description"]
+                        return httpx.Response(200, json=objeto)
+            return httpx.Response(404, text="no existe")
         if ruta.endswith("/sync_schema"):
             return httpx.Response(200, json={"status": "ok"})
         if ruta == "/api/card" and metodo == "GET":
@@ -385,3 +405,26 @@ def test_ids_o_elementos_pero_no_ambos() -> None:
     with pytest.raises(ValueError, match="no los dos"):
         elementos_dashboard([1], [{"pregunta_id": 2}])
     assert elementos_dashboard(None, None) == []
+
+
+def test_publicar_descripciones_del_modelo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    """M-19: Metabase conserva la primera descripción; se sustituye por la del modelo."""
+    mb = _adaptador(cfg_mb, simulado)
+    resultado = mb.publicar_descripciones("proyecto_test", {
+        "clientes": {"descripcion": "Una fila por cliente.",
+                     "columnas": {"cliente_id": "Identificador.", "segmento": "Tipo de cliente.",
+                                  "borrada": "No existe en Metabase."}},
+        "v_nueva": {"descripcion": "Vista recién creada.", "columnas": {}},
+    })
+    clientes = simulado.tablas[0]
+    assert clientes["description"] == "Una fila por cliente."
+    assert clientes["fields"][0]["description"] == "Identificador."
+    assert resultado["actualizadas"] == ["clientes", "clientes.cliente_id"]
+    assert resultado["sin_cambios"] == 1  # segmento ya coincidía: no se reescribe
+    assert resultado["no_encontradas"] == ["clientes.borrada", "v_nueva"]
+    assert simulado.tablas[1]["description"] is None  # otro esquema: intacto
+    # Idempotente: una segunda vez no envía nada.
+    puts = sum(1 for r in simulado.peticiones if r.method == "PUT")
+    mb.publicar_descripciones("proyecto_test", {"clientes": {"descripcion": "Una fila por cliente.",
+                                                             "columnas": {}}})
+    assert sum(1 for r in simulado.peticiones if r.method == "PUT") == puts

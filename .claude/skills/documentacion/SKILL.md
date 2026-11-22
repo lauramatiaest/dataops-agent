@@ -38,8 +38,11 @@ La documentación tiene dos partes que no se mezclan:
    {...}}})`. Enseña un resumen (cuántas descripciones, y las que **sustituyen** a una
    existente, antes → después) y aplica con `aplicar_plan` cuando la persona esté de
    acuerdo. Puedes hacerlo en varios planes (uno por tabla) si el modelo es grande.
-5. **BI.** Tras aplicar, `sincronizar_bi`: Metabase suele mostrar estos comentarios
-   como descripción de tablas y columnas.
+5. **BI.** Tras aplicar, `sincronizar_bi`: además de releer el esquema, copia las
+   descripciones del modelo en Metabase (tablas, vistas y columnas) y sustituye las que
+   difieran, porque el modelo es la fuente de verdad. Informa de cuántas se
+   actualizaron. Si devuelve `no_encontradas` (objetos recién creados que Metabase aún
+   no conoce), espera unos segundos y vuelve a llamarla.
 6. **Diccionario.** `generar_diccionario` → guarda el `markdown` **tal cual** en
    `docs/modelo/diccionario.md` (es un documento generado; no lo retoques a mano: si
    algo está mal, corrige la descripción en el modelo y regenera).

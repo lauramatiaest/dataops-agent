@@ -33,7 +33,13 @@ servidor MCP propio que solo ofrece operaciones seguras:
 - **Valida de forma determinista** cada carga (recuentos, sumas de control, unicidad).
 - **Audita** cada llamada (quién, qué, cuándo, resultado, plan) en una tabla de solo
   anexado y en JSONL.
-- **Publica** preguntas y dashboards en Metabase mediante un adaptador intercambiable.
+- **Analiza en profundidad:** segmentación RFM de clientes, ABC/Pareto de productos,
+  retención por cohortes y variación interanual, como vistas con SQL probado.
+- **Publica** dashboards completos en Metabase (fila de KPI, secciones, 13 tipos de
+  gráfico con formato) mediante un adaptador intercambiable.
+- **Trabaja por fases** en un proyecto completo (configuración, descubrimiento, diseño,
+  construcción, validación y documentación) y no construye nada hasta que la persona
+  aprueba el diseño.
 - **Documenta** el modelo: descripciones de negocio guardadas como comentarios en
   PostgreSQL (con plan), linaje desde la auditoría y diccionario de datos en Markdown
   con diagrama entidad-relación (`docs/modelo/diccionario.md`).
@@ -57,13 +63,13 @@ flowchart LR
     subgraph CC [Claude Code · suscripción]
         direction TB
         M[CLAUDE.md<br/>reglas del agente]
-        S[Skills<br/>ingesta · modelado · transformación<br/>reporting · validación · diagnóstico]
+        S[Skills<br/>proyecto-completo · fases<br/>ingesta · modelado · transformación<br/>analítica avanzada · reporting<br/>validación · diagnóstico · documentación]
         P[Permisos .claude/settings.json<br/>ask: aplicar_plan_destructivo]
     end
 
-    CC <-->|MCP stdio| MCP
+    CC <-->|MCP Streamable HTTP<br/>127.0.0.1:8080 · token| MCP
 
-    subgraph MCP [Servidor MCP dataops · Python 3.12]
+    subgraph MCP [Servidor MCP dataops · Python 3.12 · contenedor mcp]
         direction TB
         H[Herramientas<br/>lectura · planificar_* · aplicar_plan · BI]
         V[Validador SQL<br/>sqlglot]
@@ -92,6 +98,7 @@ flowchart LR
 | Capa | Qué impide | Dónde |
 |---|---|---|
 | Reglas del agente | Escribir sin plan, rodear bloqueos, inventar relaciones | `CLAUDE.md`, skills |
+| Transporte HTTP | Llamadas al servidor de otros procesos o páginas web | `transporte_http.py`, `docker-compose.yml` |
 | Permisos del cliente | Aplicar algo destructivo sin que la persona lo apruebe; usar psql o leer `.env` | `.claude/settings.json` |
 | Validador SQL | Varias sentencias, sentencias fuera de lista, salir del esquema, catálogo, funciones peligrosas | `seguridad/validador_sql.py` |
 | Patrón de planes | Ejecutar algo distinto de lo revisado, aplicar dos veces, planes caducados o bloqueados | `planes.py`, `aplicador.py` |
@@ -268,6 +275,7 @@ Ver [eval/README.md](eval/README.md).
 │   ├── seguridad/validador_sql.py
 │   ├── planes.py · planificador.py · aplicador.py
 │   ├── perfilado.py · ficheros.py · validaciones.py · catalogo.py
+│   ├── transformaciones.py · documentacion.py · transporte_http.py
 │   ├── auditoria.py · conexion.py · config.py · admin.py
 │   ├── bi/base.py (BIAdapter) · bi/metabase.py (MetabaseAdapter)
 │   └── sql/roles.sql · sql/proyecto.sql
@@ -275,7 +283,7 @@ Ver [eval/README.md](eval/README.md).
 ├── scripts/configurar_metabase.py
 ├── eval/                         # tareas YAML, comparador, lanzador A/B
 ├── tests/                        # pytest (unitarios + integración)
-└── docs/arquitectura.md · docs/demo.md
+└── docs/arquitectura.md · docs/demo.md · docs/modelo/diccionario.md
 ```
 
 ## Estado y limitaciones
@@ -310,6 +318,10 @@ simulado.
   10/100/1000 y quitar duplicados exactos); los cambios de formato se piden al origen.
 - La auditoría del servidor no registra los rechazos que la persona hace en Claude Code
   (ocurren antes de que la llamada llegue al servidor).
+- Los dashboards no tienen filtros interactivos; se ofrecen preguntas separadas por la
+  dimensión que interese.
+- Las descripciones del modelo sustituyen al publicarse las que se hayan editado a mano
+  en Metabase: el modelo es la fuente de verdad.
 
 ## Uso de IA en el desarrollo
 

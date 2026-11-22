@@ -8,16 +8,23 @@ defenderla y revisarla.
 
 ```
 Analista ──► Claude Code (CLAUDE.md + skills + permisos)
-                 │  MCP (stdio, JSON-RPC)
+                 │  MCP Streamable HTTP · 127.0.0.1:8080/mcp · Authorization: Bearer
+                 │  (stdio en los tests y en la evaluación)
                  ▼
-          Servidor MCP "dataops" (Python)
+          Servidor MCP "dataops" (Python, contenedor `mcp` de Docker Compose)
           ├─ herramientas de lectura ─────────► PostgreSQL (rol lector, solo lectura)
           ├─ planificar_* (sin efectos) ──────► PostgreSQL (rol lector, para estimar)
           ├─ aplicar_plan[_destructivo] ──────► PostgreSQL (rol escritor, 1 transacción)
           ├─ validaciones deterministas
           ├─ auditoría (JSONL + dataops_meta.auditoria)
+          ├─ documentación (COMMENT ON, linaje desde la auditoría, diccionario)
           └─ BIAdapter ── MetabaseAdapter ────► Metabase (API REST) ──► PostgreSQL (lector)
 ```
+
+Skills (`.claude/skills/`): `proyecto-completo` orquesta por fases (configuración,
+descubrimiento, diseño con aprobación, construcción, validación y documentación) a
+`ingesta`, `diagnostico-reparacion`, `modelado`, `transformacion`, `analitica-avanzada`,
+`reporting`, `validacion` y `documentacion`.
 
 Reparto de responsabilidades:
 
@@ -60,14 +67,17 @@ sequenceDiagram
   control sobre el bucle del agente que con un SDK. `claude -p` usaría la API si
   `ANTHROPIC_API_KEY` está definida, por eso el lanzador se niega a ejecutar en ese caso.
 
-### ADR-02. SDK oficial de MCP 2.x (`MCPServer`, antes `FastMCP`) por stdio
+### ADR-02. SDK oficial de MCP 2.x (`MCPServer`, antes `FastMCP`)
 - **Contexto:** se pidió FastMCP. En la serie 2.x del SDK oficial, `FastMCP` se renombró a
   `MCPServer` (`mcp.server.mcpserver`); el módulo `mcp.server.fastmcp` ya no existe.
-- **Decisión:** `mcp>=2.2,<3` con `MCPServer`, transporte stdio (Claude Code lanza el
-  proceso). Herramientas tipadas con anotaciones MCP `read_only_hint` y `destructive_hint`.
+- **Decisión:** `mcp>=2.2,<3` con `MCPServer`. Herramientas tipadas con anotaciones MCP
+  `read_only_hint` y `destructive_hint`. El mismo servidor admite dos transportes
+  (`DATAOPS_MCP_TRANSPORTE`): Streamable HTTP para el uso interactivo (ADR-15) y stdio,
+  en el que Claude Code lanza el proceso, para los tests y la evaluación.
 - **Consecuencias:** es la misma API de alto nivel (decorador `@tool`, esquemas a partir
   de los tipos). Con stdio, **stdout es el canal del protocolo**: nada puede escribir en
   él (la auditoría y los avisos van a stderr; hay un test que arranca el servidor por stdio).
+  La versión inicial solo usaba stdio; el cambio a HTTP no tocó ninguna herramienta.
 
 ### ADR-03. Patrón planificar → aplicar con planes inmutables
 - **Contexto:** un agente que ejecuta SQL directamente puede hacer cambios que nadie ha
@@ -94,7 +104,14 @@ sequenceDiagram
   persona), que no depende de la configuración del cliente.
 - **Consecuencias:** la barrera depende de que el proyecto se use con su
   `settings.json`; por eso hay además bloqueos de servidor (sin CASCADE, dependientes) y
-  privilegios de BD. **Pendiente de comprobar en la práctica.**
+  privilegios de BD.
+- **Comprobado en la práctica** (Claude Code en modo normal): un borrado confirmado en
+  la conversación se detiene en el aviso de aprobación; denegado, la tabla sigue intacta
+  y el agente no reintenta; aprobado, se aplica y queda auditado como destructivo.
+  Matiz descubierto en las pruebas: en el modo automático de Claude Code los
+  `aplicar_plan` no destructivos no se consultan uno a uno, por eso el proyecto fija
+  `"defaultMode": "default"`. Los rechazos ocurren en el cliente y no llegan a la
+  auditoría del servidor (limitación conocida).
 
 ### ADR-05. Validación de SQL con sqlglot por lista de permitidos
 - **Decisión:** se analiza el SQL y se exige: una sola sentencia; tipo dentro de la
@@ -146,7 +163,10 @@ sequenceDiagram
 
 ### ADR-10. BI detrás de una interfaz; Metabase v0.64.2.8 fijada
 - **Decisión:** `BIAdapter` (estado, sincronizar, crear/actualizar pregunta, crear
-  dashboard, añadir al dashboard) con nombres de visualización neutrales;
+  dashboard, añadir al dashboard, uso de objetos, publicar descripciones) con nombres
+  neutrales de visualización (13 tipos), de ajustes (ejes, series, formatos, objetivo) y
+  de elementos de dashboard (sección, texto, pregunta con tamaño kpi/tercio/medio/ancho);
+  la traducción a `visualization_settings` y a la rejilla de 24 columnas es del adaptador;
   `MetabaseAdapter` como primera implementación. Imagen fijada a
   `metabase/metabase:v0.64.2.8`.
 - **Verificación de la API:** los endpoints se comprobaron en el código fuente y en la
@@ -155,11 +175,18 @@ sequenceDiagram
   `POST /api/card` con consulta nativa `{"type": "native", ...}` (sigue aceptándose y se
   normaliza a MBQL 5); `PUT /api/dashboard/:id` con `dashcards` (desde 0.48; reemplaza el
   conjunto completo, por eso el adaptador reenvía las tarjetas existentes);
-  `POST /api/dashboard/:id/cards` ya no existe (eliminado en 0.47).
+  `POST /api/dashboard/:id/cards` ya no existe (eliminado en 0.47); las tarjetas de
+  título y texto son *dashcards* virtuales (`card_id` nulo y
+  `visualization_settings.virtual_card`); las descripciones se escriben con
+  `PUT /api/table/:id` y `PUT /api/field/:id`, porque Metabase solo copia el comentario
+  de PostgreSQL cuando su descripción está vacía y no lo actualiza al sincronizar.
 - **Consecuencias:** añadir Superset = escribir `SupersetAdapter`. El SQL de las
   preguntas pasa el validador y se califica con el esquema (Metabase no tiene el
   `search_path` del servidor). Probado contra un simulador que reproduce los esquemas
-  cerrados de la API; **pendiente de probar con Metabase real.**
+  cerrados de la API y **con Metabase real** (dashboards creados por el agente). Lección
+  de esa prueba: el simulador solo vale lo que se parezca a la versión real (el formato
+  `stages` de las preguntas no estaba simulado y ocultó un fallo de la documentación).
+  No hay filtros interactivos de dashboard (trabajo futuro).
 
 ### ADR-11. Transformaciones como vistas
 - **Decisión:** la lógica analítica son vistas `v_*` y los dashboards leen de ellas.
@@ -194,6 +221,52 @@ sequenceDiagram
   `MetabaseAdapter`). Tipado en todo el código, dataclasses inmutables donde aplica,
   ruff con línea de 100.
 
+### ADR-15. El servidor MCP como aplicación independiente por HTTP
+- **Contexto:** con stdio el servidor es un proceso hijo de Claude Code; en entornos
+  reales el MCP es un servicio aparte al que se conectan los clientes.
+- **Decisión:** servicio `mcp` de Docker Compose (imagen propia) con Streamable HTTP en
+  `127.0.0.1:8080/mcp`, en el mismo repositorio. Seguridad: token *Bearer* obligatorio
+  (≥ 24 caracteres, comparación en tiempo constante; sin token no arranca), protección
+  contra *DNS rebinding* (`Host`/`Origin` locales), puerto publicado solo en `127.0.0.1`,
+  contenedor sin la contraseña de administración de PostgreSQL (solo lector y escritor),
+  `datos/` montado en solo lectura y usuario sin root.
+- **Alternativas:** MCP remoto en la nube (fuera de alcance y obligaría a subir datos,
+  PostgreSQL y Metabase); OAuth por usuario (trabajo futuro).
+- **Consecuencias:** cualquier cliente MCP puede usar el servidor y todo arranca con un
+  `docker compose up`. La evaluación sigue con stdio porque necesita un servidor limpio
+  por tarea (los planes viven en memoria del proceso).
+
+### ADR-16. Reparación de entregas con transformaciones declarativas
+- **Decisión:** `planificar_carga_transformada` admite solo `renombrar`, `dividir` por
+  10/100/1000 y `quitar_duplicados_exactos`, aplicadas al leer el fichero. La
+  transformación es parte del paso del plan (y de su huella SHA-256) y de la auditoría,
+  y `validar_carga(..., plan_carga=...)` compara con el origen tal y como se cargó.
+- **Alternativas descartadas:** que el agente edite el fichero (en las pruebas lo hizo
+  con la shell: sin plan, sin validación y sin auditoría) o permitir expresiones SQL de
+  transformación (más superficie de ataque).
+- **Consecuencias:** el fichero entregado no se toca nunca (además, montado en solo
+  lectura). Los cambios de formato quedan fuera a propósito.
+
+### ADR-17. Documentación: hechos del sistema, significado en el modelo
+- **Decisión:** los hechos (tipos, claves, filas, linaje desde la auditoría, uso en BI)
+  los genera el servidor; el significado de negocio lo redacta el agente y se guarda
+  como `COMMENT ON` con plan. El `COMMENT ON` lo construye el servidor con el texto como
+  literal (`psycopg.sql.Literal`), sin pasar por el validador: el texto nunca se
+  interpreta como SQL. El diccionario Markdown es un documento generado y
+  `sincronizar_bi` copia las descripciones a Metabase.
+- **Consecuencias:** la documentación no se desincroniza del modelo; una descripción
+  editada a mano en Metabase se sustituye por la del modelo (fuente de verdad).
+
+### ADR-18. Capacidades analíticas en skills, no en el núcleo
+- **Decisión:** RFM, ABC/Pareto, cohortes y tendencias son plantillas SQL de la skill
+  `analitica-avanzada` que se aplican con `planificar_vista`; la orquestación por fases
+  es otra skill (`proyecto-completo`) con un punto de control humano para aprobar el
+  diseño. Ninguna de las dos añade herramientas al servidor.
+- **Consecuencias:** demuestra la extensibilidad del enfoque (capacidades nuevas
+  editando texto) y mantiene la superficie de seguridad del servidor. Las plantillas
+  tienen un test de integración que las extrae del propio `SKILL.md` y compara sus
+  resultados con un cálculo independiente, para que una edición de la skill no las rompa.
+
 ## 3. Modelo de amenazas (resumen)
 
 | Amenaza | Mitigación | Riesgo residual |
@@ -205,6 +278,8 @@ sequenceDiagram
 | El agente rodea el servidor (psql, Python, Docker) | Reglas `deny`, Bash no permitido por defecto | Las reglas de Bash no son frontera; depende de que la persona revise los comandos |
 | *Prompt injection* en el contenido de los ficheros | Las barreras no dependen del modelo | El modelo puede intentar acciones no deseadas (quedan bloqueadas o pendientes de aprobación) |
 | Manipulación de la auditoría | Solo INSERT/SELECT para el escritor; JSONL paralelo | Un administrador de la BD puede modificarla |
+| Otro proceso local llama al servidor MCP por HTTP | Token *Bearer*, `Host`/`Origin` locales, puerto en 127.0.0.1 | Quien lea el token del entorno del usuario |
+| El contenedor del MCP se ve comprometido | Sin contraseña de administración, `datos/` en solo lectura, usuario sin root | Credenciales de lector y escritor dentro del contenedor |
 | Secretos en el repositorio | `.env` fuera de Git; puertos solo en 127.0.0.1 | Contraseñas por defecto si no se cambian |
 
 ## 4. Referencias

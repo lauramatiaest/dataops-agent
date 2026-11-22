@@ -228,3 +228,13 @@ class BIAdapter(ABC):
         Por defecto no se sabe: los adaptadores que puedan, lo implementan.
         """
         raise ErrorBI(f"El adaptador {self.nombre} no informa del uso de los objetos.")
+
+    def publicar_descripciones(
+        self, esquema: str, descripciones: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Copia en la herramienta de BI las descripciones del modelo.
+
+        ``descripciones``: ``{objeto: {"descripcion": str | None, "columnas": {col: str}}}``.
+        El modelo (``COMMENT ON``) es la fuente de verdad: lo que no coincida se sustituye.
+        """
+        raise ErrorBI(f"El adaptador {self.nombre} no admite publicar descripciones.")

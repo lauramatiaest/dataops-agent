@@ -147,6 +147,18 @@ def test_flujo_completo_de_la_demo(entorno, conn_admin: psycopg.Connection) -> N
     ).fetchall()
     assert sorted(f[0] for f in filas) == sorted(e["plan_id"] for e in aplicaciones)
 
+    # M-19: la descripción guardada en el modelo llega a Metabase al sincronizar,
+    # aunque Metabase ya tuviera otra (la primera que importó).
+    doc = sesion.llamar("planificar_documentacion", descripciones={
+        "clientes": {"descripcion": "Una fila por cliente.",
+                     "columnas": {"cliente_id": "Identificador del cliente."}},
+    })
+    sesion.llamar("aplicar_plan", plan_id=doc["plan_id"])
+    sync = sesion.llamar("sincronizar_bi")
+    assert sync["descripciones"]["actualizadas"] == ["clientes", "clientes.cliente_id"]
+    assert simulado.tablas[0]["description"] == "Una fila por cliente."
+    assert sesion.llamar("sincronizar_bi", descripciones=False).get("descripciones") is None
+
 
 def test_barreras(entorno, conn_admin: psycopg.Connection) -> None:
     sesion, _, cfg = entorno

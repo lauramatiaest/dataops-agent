@@ -496,12 +496,34 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         return s.auditado("estado_bi", "BI ESTADO", lambda: exigir_bi().estado())
 
     @servidor.tool(annotations=_BI)
-    def sincronizar_bi() -> dict[str, Any]:
-        """Pide a la herramienta de BI que relea el esquema (tras crear tablas o vistas)."""
+    def sincronizar_bi(descripciones: bool = True) -> dict[str, Any]:
+        """Pide a la herramienta de BI que relea el esquema (tras crear tablas o vistas) y,
+        si `descripciones`, le copia las descripciones de negocio guardadas en el modelo
+        (tablas, vistas y columnas), sustituyendo las que difieran."""
 
         def accion() -> dict[str, Any]:
-            exigir_bi().sincronizar()
-            return {"mensaje": "Sincronización solicitada (tarda unos segundos)."}
+            bi = exigir_bi()
+            bi.sincronizar()
+            respuesta: dict[str, Any] = {
+                "mensaje": "Sincronización solicitada (tarda unos segundos)."
+            }
+            if descripciones:
+                with s.gestor.lectura() as conn:
+                    textos = {
+                        objeto: {
+                            "descripcion": documentacion.comentario_objeto(
+                                conn, cfg.esquema, objeto),
+                            "columnas": documentacion.comentarios_columnas(
+                                conn, cfg.esquema, objeto),
+                        }
+                        for objeto in catalogo.objetos(conn, cfg.esquema)
+                    }
+                textos = {o: d for o, d in textos.items() if d["descripcion"] or d["columnas"]}
+                try:
+                    respuesta["descripciones"] = bi.publicar_descripciones(cfg.esquema, textos)
+                except ErrorBI as error:  # no impide la sincronización
+                    respuesta["descripciones"] = {"error": str(error)}
+            return respuesta
 
         return s.auditado("sincronizar_bi", "BI SYNC", accion)
 

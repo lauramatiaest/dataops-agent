@@ -13,6 +13,9 @@ versión (``docs/api.json`` del repositorio de Metabase); ver docs/arquitectura.
 * ``POST /api/database``                     → {name, engine, details{host, port, dbname,
   user, password}}
 * ``POST /api/database/:id/sync_schema``     → asíncrono, devuelve {"status": "ok"}
+* ``GET  /api/database/:id/metadata``        → tables[{id, name, schema, description,
+  fields[{id, name, description}]}]
+* ``PUT  /api/table/:id`` y ``PUT /api/field/:id`` → {"description": ...}
 * ``POST /api/card``                         → {name, display, visualization_settings,
   dataset_query}
 * ``GET  /api/card/:id``                     → incluye "display" (para elegir el tamaño)
@@ -277,6 +280,47 @@ class MetabaseAdapter(BIAdapter):
         if visualizacion in VISUALIZACIONES_KPI:
             return "kpi"
         return "ancho" if visualizacion == "tabla" else "medio"
+
+    def publicar_descripciones(
+        self, esquema: str, descripciones: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Metabase solo copia el comentario de PostgreSQL la primera vez (cuando su
+        descripción está vacía), así que una descripción corregida en el modelo no le
+        llega al sincronizar (I-30). Aquí se escribe por la API, solo donde difiere."""
+        metadatos = self._peticion("GET", f"/api/database/{self.id_base_datos()}/metadata")
+        tablas = {t.get("name"): t for t in metadatos.get("tables", [])
+                  if t.get("schema") == esquema}
+        actualizadas: list[str] = []
+        sin_cambios = 0
+        no_encontradas: list[str] = []
+        for objeto, datos in sorted(descripciones.items()):
+            tabla = tablas.get(objeto)
+            if tabla is None:
+                no_encontradas.append(objeto)
+                continue
+            texto = datos.get("descripcion")
+            if texto and tabla.get("description") != texto:
+                self._peticion("PUT", f"/api/table/{tabla['id']}", json={"description": texto})
+                actualizadas.append(objeto)
+            elif texto:
+                sin_cambios += 1
+            campos = {c.get("name"): c for c in tabla.get("fields", [])}
+            for columna, texto_col in sorted((datos.get("columnas") or {}).items()):
+                campo = campos.get(columna)
+                if campo is None:
+                    no_encontradas.append(f"{objeto}.{columna}")
+                elif campo.get("description") != texto_col:
+                    self._peticion("PUT", f"/api/field/{campo['id']}",
+                                   json={"description": texto_col})
+                    actualizadas.append(f"{objeto}.{columna}")
+                else:
+                    sin_cambios += 1
+        resultado: dict[str, Any] = {"actualizadas": actualizadas, "sin_cambios": sin_cambios}
+        if no_encontradas:
+            resultado["no_encontradas"] = no_encontradas
+            resultado["aviso"] = ("Metabase aún no conoce estos objetos (la sincronización "
+                                  "tarda unos segundos): vuelve a llamar a sincronizar_bi.")
+        return resultado
 
     # ---------------------------------------------------- configuración inicial
     def uso_de_objetos(self, nombres: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
