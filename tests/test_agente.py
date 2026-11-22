@@ -47,7 +47,7 @@ def _frontmatter(ruta: Path) -> tuple[dict[str, str], str]:
 def test_skills_esperadas() -> None:
     nombres = {p.parent.name for p in SKILLS}
     assert nombres == {"ingesta", "modelado", "transformacion", "reporting", "validacion",
-                       "diagnostico-reparacion", "documentacion"}
+                       "diagnostico-reparacion", "documentacion", "analitica-avanzada"}
 
 
 @pytest.mark.parametrize("ruta", SKILLS, ids=lambda p: p.parent.name)
