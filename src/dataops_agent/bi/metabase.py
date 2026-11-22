@@ -15,10 +15,21 @@ versión (``docs/api.json`` del repositorio de Metabase); ver docs/arquitectura.
 * ``POST /api/database/:id/sync_schema``     → asíncrono, devuelve {"status": "ok"}
 * ``POST /api/card``                         → {name, display, visualization_settings,
   dataset_query}
+* ``GET  /api/card/:id``                     → incluye "display" (para elegir el tamaño)
 * ``PUT  /api/card/:id``                     → campos opcionales (p. ej. dataset_query)
 * ``POST /api/dashboard``                    → {name, description?}
 * ``PUT  /api/dashboard/:id``                → {"dashcards": [...]} REEMPLAZA todas las tarjetas
-  (desde 0.48; ``POST /api/dashboard/:id/cards`` se eliminó en 0.47)
+  (desde 0.48; ``POST /api/dashboard/:id/cards`` se eliminó en 0.47) y admite
+  ``"width": "full"`` (dashboard a todo el ancho, desde 0.47)
+* Tarjetas de título y de texto: dashcards con ``card_id`` nulo y
+  ``visualization_settings.virtual_card.display`` = "heading" o "text" más ``text``
+
+Ajustes de visualización usados (``visualization_settings`` de una card):
+``graph.dimensions``, ``graph.metrics``, ``graph.x_axis.title_text``,
+``graph.y_axis.title_text``, ``stackable.stack_type``, ``graph.show_values``,
+``pie.dimension``, ``pie.metric``, ``funnel.dimension``, ``funnel.metric``,
+``scalar.field``, ``progress.goal`` y ``column_settings`` (clave ``["name","col"]``
+con ``number_style``/``currency``, ``suffix`` o ``decimals``).
 
 Las consultas se envían en el formato "nativo" clásico
 ``{"type": "native", "native": {"query": ...}, "database": id}``, que Metabase sigue
@@ -27,12 +38,21 @@ aceptando y normaliza internamente a MBQL 5.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 import httpx
 
-from dataops_agent.bi.base import BIAdapter, ErrorBI, Pregunta, RefBI
+from dataops_agent.bi.base import (
+    VISUALIZACIONES_KPI,
+    Ajustes,
+    BIAdapter,
+    Elemento,
+    ErrorBI,
+    Pregunta,
+    RefBI,
+)
 from dataops_agent.config import Config
 
 # Traducción de visualizaciones neutrales a los valores "display" de Metabase.
@@ -44,8 +64,26 @@ _DISPLAY = {
     "area": "area",
     "tarta": "pie",
     "numero": "scalar",
+    "tendencia": "smartscalar",
+    "progreso": "progress",
+    "combinado": "combo",
+    "dispersion": "scatter",
+    "embudo": "funnel",
+    "cascada": "waterfall",
 }
+_NEUTRAL = {v: k for k, v in _DISPLAY.items()}
 _ANCHO_REJILLA = 24  # columnas de la rejilla de un dashboard de Metabase
+# (ancho, alto) en unidades de la rejilla para cada tamaño neutral.
+_TAMANOS = {"kpi": (6, 3), "tercio": (8, 6), "medio": (12, 6), "ancho": (24, 7)}
+_FORMATOS = {
+    "moneda": {"number_style": "currency", "currency": "EUR", "currency_style": "symbol"},
+    "porcentaje": {"suffix": " %"},
+    "entero": {"decimals": 0},
+    "decimal": {"decimals": 2},
+}
+# Campos de una dashcard existente que hay que reenviar para conservarla tal cual.
+_CAMPOS_DASHCARD = ("id", "card_id", "row", "col", "size_x", "size_y",
+                    "visualization_settings", "parameter_mappings", "dashboard_tab_id")
 
 
 class MetabaseAdapter(BIAdapter):
@@ -163,7 +201,8 @@ class MetabaseAdapter(BIAdapter):
         cuerpo: dict[str, Any] = {
             "name": pregunta.nombre,
             "display": _DISPLAY[pregunta.visualizacion],
-            "visualization_settings": {},
+            "visualization_settings": ajustes_visualizacion(pregunta.visualizacion,
+                                                            pregunta.ajustes),
             "dataset_query": self._consulta_nativa(pregunta.sql),
         }
         if pregunta.descripcion:
@@ -173,15 +212,21 @@ class MetabaseAdapter(BIAdapter):
 
     def actualizar_pregunta(
         self, pregunta_id: int, sql: str | None = None, nombre: str | None = None,
-        visualizacion: str | None = None,
+        visualizacion: str | None = None, ajustes: Ajustes | None = None,
     ) -> RefBI:
         cuerpo: dict[str, Any] = {}
         if sql is not None:
             cuerpo["dataset_query"] = self._consulta_nativa(sql)
         if nombre is not None:
             cuerpo["name"] = nombre
-        if visualizacion is not None:
-            cuerpo["display"] = _DISPLAY[Pregunta("x", "x", visualizacion).visualizacion]
+        if visualizacion is not None or ajustes is not None:
+            if visualizacion is None:
+                actual = self._peticion("GET", f"/api/card/{pregunta_id}")
+                visualizacion = _NEUTRAL.get(actual.get("display", ""), "tabla")
+            valida = Pregunta("x", "x", visualizacion, ajustes=ajustes or Ajustes())
+            cuerpo["display"] = _DISPLAY[valida.visualizacion]
+            if ajustes is not None:
+                cuerpo["visualization_settings"] = ajustes_visualizacion(visualizacion, ajustes)
         if not cuerpo:
             raise ValueError("No hay nada que actualizar.")
         datos = self._peticion("PUT", f"/api/card/{pregunta_id}", json=cuerpo)
@@ -189,35 +234,49 @@ class MetabaseAdapter(BIAdapter):
                      f"{self.publica}/question/{pregunta_id}")
 
     def crear_dashboard(
-        self, nombre: str, pregunta_ids: list[int], descripcion: str | None = None
+        self, nombre: str, elementos: list[Elemento], descripcion: str | None = None
     ) -> RefBI:
         cuerpo: dict[str, Any] = {"name": nombre}
         if descripcion:
             cuerpo["description"] = descripcion
         datos = self._peticion("POST", "/api/dashboard", json=cuerpo)
         ref = RefBI(int(datos["id"]), nombre, f"{self.publica}/dashboard/{datos['id']}")
-        if pregunta_ids:
-            self.anadir_a_dashboard(ref.id, pregunta_ids)
+        if elementos:
+            self.anadir_a_dashboard(ref.id, elementos)
         return ref
 
-    def anadir_a_dashboard(self, dashboard_id: int, pregunta_ids: list[int]) -> RefBI:
-        """Añade tarjetas conservando las existentes.
+    def anadir_a_dashboard(self, dashboard_id: int, elementos: list[Elemento]) -> RefBI:
+        """Añade elementos debajo de los existentes, conservándolos.
 
         ``PUT /api/dashboard/:id`` reemplaza el conjunto completo de tarjetas, así que
-        se envían las actuales (con su id) más las nuevas (con id negativo).
+        se envían las actuales (con su id y sus ajustes, que es donde va el texto de las
+        tarjetas de título) más las nuevas (con id negativo).
         """
+        if not elementos:
+            raise ValueError("No hay nada que añadir al dashboard.")
         actual = self._peticion("GET", f"/api/dashboard/{dashboard_id}")
         existentes = [
-            {k: t[k] for k in ("id", "card_id", "row", "col", "size_x", "size_y") if k in t}
+            {k: t[k] for k in _CAMPOS_DASHCARD if t.get(k) is not None}
+            | {"card_id": t.get("card_id")}
             for t in actual.get("dashcards", [])
         ]
         fila_libre = max((t["row"] + t["size_y"] for t in existentes), default=0)
-        nuevas = _colocar(pregunta_ids, fila_inicial=fila_libre)
+        tamanos = {e.pregunta_id: self._tamano_por_defecto(e.pregunta_id)
+                   for e in elementos if e.pregunta_id is not None and e.tamano is None}
+        nuevas = colocar(elementos, tamanos, fila_inicial=fila_libre)
         self._peticion("PUT", f"/api/dashboard/{dashboard_id}",
-                       json={"dashcards": existentes + nuevas})
+                       json={"dashcards": existentes + nuevas, "width": "full"})
         return RefBI(
             dashboard_id, actual.get("name", ""), f"{self.publica}/dashboard/{dashboard_id}"
         )
+
+    def _tamano_por_defecto(self, pregunta_id: int) -> str:
+        """KPI pequeños, tablas a todo el ancho y el resto a media anchura."""
+        display = self._peticion("GET", f"/api/card/{pregunta_id}").get("display")
+        visualizacion = _NEUTRAL.get(display or "", "tabla")
+        if visualizacion in VISUALIZACIONES_KPI:
+            return "kpi"
+        return "ancho" if visualizacion == "tabla" else "medio"
 
     # ---------------------------------------------------- configuración inicial
     def uso_de_objetos(self, nombres: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -314,19 +373,89 @@ def _textos(valor: Any) -> list[str]:
     return []
 
 
-def _colocar(pregunta_ids: list[int], fila_inicial: int = 0) -> list[dict[str, int]]:
-    """Distribuye las tarjetas en dos columnas de 12 x 6 unidades."""
-    ancho, alto = _ANCHO_REJILLA // 2, 6
-    tarjetas = []
-    for i, pregunta_id in enumerate(pregunta_ids):
-        tarjetas.append(
-            {
-                "id": -(i + 1),  # negativo = tarjeta nueva
-                "card_id": pregunta_id,
-                "row": fila_inicial + (i // 2) * alto,
-                "col": (i % 2) * ancho,
-                "size_x": ancho,
-                "size_y": alto,
-            }
-        )
+def ajustes_visualizacion(visualizacion: str, ajustes: Ajustes) -> dict[str, Any]:
+    """Traduce los ajustes neutrales a ``visualization_settings`` de Metabase."""
+    vs: dict[str, Any] = {}
+    if visualizacion == "tarta":
+        dimension, metrica = "pie.dimension", "pie.metric"
+    elif visualizacion == "embudo":
+        dimension, metrica = "funnel.dimension", "funnel.metric"
+    else:
+        dimension, metrica = "graph.dimensions", "graph.metrics"
+    if visualizacion in VISUALIZACIONES_KPI:
+        if ajustes.series:
+            vs["scalar.field"] = ajustes.series[0]
+        if visualizacion == "tendencia" and ajustes.eje_x:
+            vs["graph.dimensions"] = [ajustes.eje_x]
+    else:
+        if ajustes.eje_x:
+            vs[dimension] = ajustes.eje_x if dimension != "graph.dimensions" else [ajustes.eje_x]
+        if ajustes.series:
+            vs[metrica] = (ajustes.series[0] if metrica != "graph.metrics"
+                           else list(ajustes.series))
+    if ajustes.titulo_x:
+        vs["graph.x_axis.title_text"] = ajustes.titulo_x
+    if ajustes.titulo_y:
+        vs["graph.y_axis.title_text"] = ajustes.titulo_y
+    if ajustes.apilado:
+        vs["stackable.stack_type"] = "stacked"
+    if ajustes.mostrar_valores:
+        vs["graph.show_values"] = True
+    if ajustes.objetivo is not None:
+        vs["progress.goal"] = ajustes.objetivo
+    if ajustes.formatos:
+        vs["column_settings"] = {
+            json.dumps(["name", columna], separators=(",", ":")): dict(_FORMATOS[formato])
+            for columna, formato in ajustes.formatos
+        }
+    return vs
+
+
+def _tarjeta_virtual(tipo: str, texto: str) -> dict[str, Any]:
+    return {
+        "virtual_card": {"name": None, "display": tipo, "visualization_settings": {},
+                         "dataset_query": {}, "archived": False},
+        "text": texto,
+    }
+
+
+def colocar(
+    elementos: list[Elemento], tamanos: dict[int, str] | None = None, fila_inicial: int = 0
+) -> list[dict[str, Any]]:
+    """Coloca los elementos de izquierda a derecha en la rejilla de 24 columnas.
+
+    Las preguntas se empaquetan en filas según su tamaño (4 KPI, 3 tercios, 2 medios
+    o 1 ancho por fila). Una sección o un texto cierra la fila en curso y ocupa todo
+    el ancho, de modo que agrupa debajo las preguntas que le siguen.
+    """
+    tamanos = tamanos or {}
+    tarjetas: list[dict[str, Any]] = []
+    fila, col, alto_fila = fila_inicial, 0, 0
+
+    def nueva_fila() -> None:
+        nonlocal fila, col, alto_fila
+        fila, col, alto_fila = fila + alto_fila, 0, 0
+
+    for elemento in elementos:
+        nuevo_id = -(len(tarjetas) + 1)  # negativo = tarjeta nueva
+        if elemento.pregunta_id is None:
+            nueva_fila()
+            if elemento.seccion is not None:
+                alto, ajustes = 1, _tarjeta_virtual("heading", elemento.seccion)
+            else:
+                texto = elemento.texto or ""
+                alto = min(max(2, texto.count("\n") + 1), 6)
+                ajustes = _tarjeta_virtual("text", texto)
+            tarjetas.append({"id": nuevo_id, "card_id": None, "row": fila, "col": 0,
+                             "size_x": _ANCHO_REJILLA, "size_y": alto,
+                             "visualization_settings": ajustes})
+            fila += alto
+            continue
+        ancho, alto = _TAMANOS[elemento.tamano or tamanos[elemento.pregunta_id]]
+        if col + ancho > _ANCHO_REJILLA:
+            nueva_fila()
+        tarjetas.append({"id": nuevo_id, "card_id": elemento.pregunta_id, "row": fila,
+                         "col": col, "size_x": ancho, "size_y": alto})
+        col += ancho
+        alto_fila = max(alto_fila, alto)
     return tarjetas

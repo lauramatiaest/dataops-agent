@@ -14,7 +14,9 @@ from typing import Any
 import httpx
 import pytest
 
-from dataops_agent.bi import ErrorBI, MetabaseAdapter, Pregunta
+from dataops_agent.bi import Ajustes, Elemento, ErrorBI, MetabaseAdapter, Pregunta
+from dataops_agent.bi.base import elementos_dashboard
+from dataops_agent.bi.metabase import colocar
 from dataops_agent.config import Config
 
 CLAVES_CARD = {"name", "display", "visualization_settings", "dataset_query", "description",
@@ -78,6 +80,9 @@ class MetabaseSimulado:
             card_id = 100 + len(self.cards)
             self.cards[card_id] = cuerpo
             return httpx.Response(200, json={"id": card_id, **cuerpo})
+        if ruta.startswith("/api/card/") and metodo == "GET":
+            card_id = int(ruta.rsplit("/", 1)[1])
+            return httpx.Response(200, json={"id": card_id, **self.cards[card_id]})
         if ruta.startswith("/api/card/") and metodo == "PUT":
             card_id = int(ruta.rsplit("/", 1)[1])
             self.cards[card_id].update(cuerpo)
@@ -90,16 +95,23 @@ class MetabaseSimulado:
             dash_id = int(ruta.rsplit("/", 1)[1])
             if metodo == "GET":
                 return httpx.Response(200, json=self.dashboards[dash_id])
+            assert cuerpo.get("width", "full") in ("fixed", "full")
             for t in cuerpo["dashcards"]:
                 if extra := set(t) - CLAVES_DASHCARD:
                     return httpx.Response(400, json={"errors": list(extra)})
                 assert t["size_x"] >= 1 and t["size_y"] >= 1 and t["row"] >= 0 and t["col"] >= 0
+                assert t["col"] + t["size_x"] <= 24
+                if t["card_id"] is None:  # tarjeta virtual: título o texto
+                    virtual = t["visualization_settings"]["virtual_card"]
+                    assert virtual["display"] in ("heading", "text") and t["visualization_settings"]["text"]
             # Reemplaza el conjunto completo; asigna ids positivos a las nuevas.
             siguiente = 1000 + sum(len(d["dashcards"]) for d in self.dashboards.values())
             tarjetas = []
             for i, t in enumerate(cuerpo["dashcards"]):
                 tarjetas.append({**t, "id": t["id"] if t["id"] > 0 else siguiente + i})
             self.dashboards[dash_id]["dashcards"] = tarjetas
+            if "width" in cuerpo:
+                self.dashboards[dash_id]["width"] = cuerpo["width"]
             return httpx.Response(200, json=self.dashboards[dash_id])
         return httpx.Response(404, text=f"no simulado: {metodo} {ruta}")
 
@@ -151,12 +163,12 @@ def test_dashboard_coloca_tarjetas_y_conserva_las_existentes(
     cfg_mb: Config, simulado: MetabaseSimulado
 ) -> None:
     mb = _adaptador(cfg_mb, simulado)
-    ids = [mb.crear_pregunta(Pregunta(f"p{i}", "SELECT 1")).id for i in range(3)]
-    ref = mb.crear_dashboard("Ventas", ids[:2], "Resumen")
+    ids = [mb.crear_pregunta(Pregunta(f"p{i}", "SELECT 1", "barras")).id for i in range(3)]
+    ref = mb.crear_dashboard("Ventas", elementos_dashboard(ids[:2], None), "Resumen")
     assert ref.url == "http://mb.test/dashboard/1"
     tarjetas = simulado.dashboards[1]["dashcards"]
     assert [(t["row"], t["col"]) for t in tarjetas] == [(0, 0), (0, 12)]
-    mb.anadir_a_dashboard(ref.id, [ids[2]])
+    mb.anadir_a_dashboard(ref.id, elementos_dashboard([ids[2]], None))
     tarjetas = simulado.dashboards[1]["dashcards"]
     assert [t["card_id"] for t in tarjetas] == ids  # las dos anteriores siguen
     assert tarjetas[2]["row"] == 6
@@ -211,7 +223,7 @@ def test_uso_de_objetos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
         Pregunta("Ventas", "SELECT mes, importe FROM v_ventas", "lineas")
     )
     mb.crear_pregunta(Pregunta("Otra", "SELECT * FROM v_ventas_2", "tabla"))
-    mb.crear_dashboard("Panel", [ventas.id])
+    mb.crear_dashboard("Panel", [Elemento(pregunta_id=ventas.id)])
     uso = mb.uso_de_objetos(["v_ventas", "v_ventas_2", "clientes"])
     assert [p["nombre"] for p in uso["v_ventas"]["preguntas"]] == ["Ventas"]
     assert [d["nombre"] for d in uso["v_ventas"]["dashboards"]] == ["Panel"]
@@ -236,3 +248,140 @@ def test_uso_de_objetos_formato_nuevo(cfg_mb: Config, simulado: MetabaseSimulado
     uso = mb.uso_de_objetos(["v_ventas_mensuales", "v_ventas"])
     assert [p["nombre"] for p in uso["v_ventas_mensuales"]["preguntas"]] == ["Ventas (MBQL 5)"]
     assert "v_ventas" not in uso
+
+
+# ------------------------------------------------------------ bloque B: dashboards completos
+def test_ajustes_se_traducen_a_metabase(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    mb = _adaptador(cfg_mb, simulado)
+    ajustes = Ajustes.desde_dict({
+        "eje_x": "mes", "series": ["importe", "pedidos"], "titulo_y": "Euros",
+        "apilado": True, "mostrar_valores": True, "formatos": {"importe": "moneda"},
+    })
+    mb.crear_pregunta(Pregunta("Ventas", "SELECT 1", "combinado", ajustes=ajustes))
+    card = simulado.cards[100]
+    assert card["display"] == "combo"
+    vs = card["visualization_settings"]
+    assert vs["graph.dimensions"] == ["mes"] and vs["graph.metrics"] == ["importe", "pedidos"]
+    assert vs["graph.y_axis.title_text"] == "Euros"
+    assert vs["stackable.stack_type"] == "stacked" and vs["graph.show_values"] is True
+    # La clave de column_settings es el JSON compacto que usa Metabase:
+    assert vs["column_settings"] == {
+        '["name","importe"]': {"number_style": "currency", "currency": "EUR",
+                               "currency_style": "symbol"}
+    }
+
+
+@pytest.mark.parametrize(("visualizacion", "esperado"), [
+    ("tarta", {"pie.dimension": "categoria", "pie.metric": "importe"}),
+    ("embudo", {"funnel.dimension": "categoria", "funnel.metric": "importe"}),
+    ("numero", {"scalar.field": "importe"}),
+])
+def test_ajustes_segun_visualizacion(
+    cfg_mb: Config, simulado: MetabaseSimulado, visualizacion: str, esperado: dict[str, Any]
+) -> None:
+    mb = _adaptador(cfg_mb, simulado)
+    ajustes = Ajustes.desde_dict({"eje_x": "categoria", "series": ["importe"]})
+    mb.crear_pregunta(Pregunta("p", "SELECT 1", visualizacion, ajustes=ajustes))
+    assert simulado.cards[100]["visualization_settings"] == esperado
+
+
+def test_progreso_necesita_objetivo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    with pytest.raises(ValueError, match="objetivo"):
+        Pregunta("p", "SELECT 1", "progreso")
+    mb = _adaptador(cfg_mb, simulado)
+    mb.crear_pregunta(Pregunta("p", "SELECT 1", "progreso",
+                               ajustes=Ajustes.desde_dict({"objetivo": 50000})))
+    assert simulado.cards[100]["display"] == "progress"
+    assert simulado.cards[100]["visualization_settings"] == {"progress.goal": 50000.0}
+
+
+@pytest.mark.parametrize("datos", [
+    {"color": "rojo"},                       # clave desconocida
+    {"formatos": {"importe": "dolares"}},    # formato no admitido
+    {"series": [1, 2]},                      # series que no son columnas
+    {"objetivo": "mucho"},
+    {"apilado": "si"},
+])
+def test_ajustes_no_validos(datos: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        Ajustes.desde_dict(datos)
+
+
+def test_actualizar_solo_ajustes_conserva_la_visualizacion(
+    cfg_mb: Config, simulado: MetabaseSimulado
+) -> None:
+    mb = _adaptador(cfg_mb, simulado)
+    ref = mb.crear_pregunta(Pregunta("p", "SELECT 1", "tarta"))
+    mb.actualizar_pregunta(ref.id, ajustes=Ajustes.desde_dict({"eje_x": "categoria"}))
+    assert simulado.cards[ref.id]["display"] == "pie"
+    assert simulado.cards[ref.id]["visualization_settings"] == {"pie.dimension": "categoria"}
+
+
+def test_colocar_por_filas_con_secciones() -> None:
+    elementos = [Elemento(pregunta_id=i, tamano="kpi") for i in (1, 2, 3, 4, 5)] + [
+        Elemento(seccion="Evolución"),
+        Elemento(pregunta_id=6, tamano="medio"),
+        Elemento(pregunta_id=7, tamano="medio"),
+        Elemento(pregunta_id=8, tamano="ancho"),
+        Elemento(texto="Nota: excluye pedidos cancelados"),
+        Elemento(pregunta_id=9, tamano="tercio"),
+    ]
+    t = colocar(elementos)
+    pos = [(x["card_id"], x["row"], x["col"], x["size_x"], x["size_y"]) for x in t]
+    assert pos == [
+        (1, 0, 0, 6, 3), (2, 0, 6, 6, 3), (3, 0, 12, 6, 3), (4, 0, 18, 6, 3),
+        (5, 3, 0, 6, 3),                       # el quinto KPI baja de fila
+        (None, 6, 0, 24, 1),                   # la sección cierra la fila
+        (6, 7, 0, 12, 6), (7, 7, 12, 12, 6),
+        (8, 13, 0, 24, 7),
+        (None, 20, 0, 24, 2),                  # texto
+        (9, 22, 0, 8, 6),
+    ]
+    assert t[5]["visualization_settings"]["virtual_card"]["display"] == "heading"
+    assert t[5]["visualization_settings"]["text"] == "Evolución"
+    assert len({x["id"] for x in t}) == len(t) and all(x["id"] < 0 for x in t)
+
+
+def test_dashboard_tamano_automatico_y_ancho_completo(
+    cfg_mb: Config, simulado: MetabaseSimulado
+) -> None:
+    mb = _adaptador(cfg_mb, simulado)
+    kpi = mb.crear_pregunta(Pregunta("Ventas", "SELECT 1", "numero")).id
+    linea = mb.crear_pregunta(Pregunta("Evolución", "SELECT 1", "lineas")).id
+    tabla = mb.crear_pregunta(Pregunta("Detalle", "SELECT 1", "tabla")).id
+    mb.crear_dashboard("Panel", elementos_dashboard([kpi, linea, tabla], None))
+    dash = simulado.dashboards[1]
+    assert dash["width"] == "full"
+    assert [(t["size_x"], t["size_y"]) for t in dash["dashcards"]] == [(6, 3), (12, 6), (24, 7)]
+
+
+def test_anadir_conserva_secciones_y_textos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
+    """Al añadir, se reenvían los ajustes de las tarjetas existentes (ahí va el texto)."""
+    mb = _adaptador(cfg_mb, simulado)
+    p = mb.crear_pregunta(Pregunta("p", "SELECT 1", "barras")).id
+    ref = mb.crear_dashboard("Panel", [Elemento(seccion="Ventas"), Elemento(pregunta_id=p)])
+    mb.anadir_a_dashboard(ref.id, [Elemento(texto="Fuente: v_ventas")])
+    tarjetas = simulado.dashboards[1]["dashcards"]
+    assert [t["visualization_settings"]["text"] for t in tarjetas if t["card_id"] is None] == [
+        "Ventas", "Fuente: v_ventas"
+    ]
+    assert tarjetas[-1]["row"] == 7  # debajo de la sección (1) y la pregunta (6)
+
+
+@pytest.mark.parametrize("datos", [
+    {"pregunta_id": 1, "seccion": "x"},     # dos cosas a la vez
+    {},                                      # ninguna
+    {"seccion": "x", "tamano": "kpi"},       # tamaño en algo que no es pregunta
+    {"pregunta_id": 1, "tamano": "gigante"},
+    {"pregunta_id": "1"},
+    {"grafico": 1},
+])
+def test_elementos_no_validos(datos: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        Elemento.desde_dict(datos)
+
+
+def test_ids_o_elementos_pero_no_ambos() -> None:
+    with pytest.raises(ValueError, match="no los dos"):
+        elementos_dashboard([1], [{"pregunta_id": 2}])
+    assert elementos_dashboard(None, None) == []

@@ -39,7 +39,14 @@ from mcp.types import ToolAnnotations
 from dataops_agent import catalogo, documentacion, validaciones
 from dataops_agent.aplicador import Aplicador, RequiereConfirmacion
 from dataops_agent.auditoria import EventoAuditoria, RegistroAuditoria, Resultado
-from dataops_agent.bi import BIAdapter, ErrorBI, MetabaseAdapter, Pregunta
+from dataops_agent.bi import (
+    Ajustes,
+    BIAdapter,
+    ErrorBI,
+    MetabaseAdapter,
+    Pregunta,
+    elementos_dashboard,
+)
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config, cargar_dotenv, validar_identificador
 from dataops_agent.ficheros import EXTENSIONES, ErrorFichero, abrir
@@ -500,15 +507,26 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
 
     @servidor.tool(annotations=_BI)
     def crear_pregunta(
-        nombre: str, sql: str, visualizacion: str = "tabla", descripcion: str | None = None
+        nombre: str, sql: str, visualizacion: str = "tabla", descripcion: str | None = None,
+        ajustes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Crea una pregunta (consulta guardada) en la herramienta de BI. `sql` debe ser
-        un SELECT válido del proyecto (idealmente sobre una vista). visualizacion: tabla,
-        barras, barras_horizontales, lineas, area, tarta o numero."""
+        un SELECT válido del proyecto (idealmente sobre una vista).
+
+        visualizacion: tabla, barras, barras_horizontales, lineas, area, tarta, numero,
+        tendencia (KPI con variación frente al periodo anterior; el SQL devuelve fecha y
+        cifra), progreso (KPI frente a un objetivo), combinado (barras + líneas),
+        dispersion, embudo o cascada.
+
+        ajustes (opcional): eje_x (columna), series (columnas numéricas), titulo_x,
+        titulo_y, apilado (bool), mostrar_valores (bool), formatos ({columna: moneda |
+        porcentaje | entero | decimal}; porcentaje espera valores 0-100) y objetivo
+        (obligatorio en progreso)."""
 
         def accion() -> dict[str, Any]:
             sql_final = sql_para_bi(sql)
-            pregunta = Pregunta(nombre, sql_final, visualizacion, descripcion)
+            pregunta = Pregunta(nombre, sql_final, visualizacion, descripcion,
+                                Ajustes.desde_dict(ajustes))
             ref = exigir_bi().crear_pregunta(pregunta)
             return {**ref.como_dict(), "sql": sql_final}
 
@@ -517,34 +535,52 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
     @servidor.tool(annotations=_BI)
     def actualizar_pregunta(
         pregunta_id: int, sql: str | None = None, nombre: str | None = None,
-        visualizacion: str | None = None,
+        visualizacion: str | None = None, ajustes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Modifica una pregunta existente (SQL, nombre o visualización)."""
+        """Modifica una pregunta existente (SQL, nombre, visualización o ajustes, con las
+        mismas opciones que crear_pregunta). Los ajustes nuevos sustituyen a los anteriores."""
 
         def accion() -> dict[str, Any]:
             sql_final = sql_para_bi(sql) if sql is not None else None
             return exigir_bi().actualizar_pregunta(
-                pregunta_id, sql_final, nombre, visualizacion
+                pregunta_id, sql_final, nombre, visualizacion,
+                None if ajustes is None else Ajustes.desde_dict(ajustes),
             ).como_dict()
 
         return s.auditado("actualizar_pregunta", "BI PREGUNTA", accion, sql=sql)
 
     @servidor.tool(annotations=_BI)
     def crear_dashboard(
-        nombre: str, pregunta_ids: list[int], descripcion: str | None = None
+        nombre: str, pregunta_ids: list[int] | None = None, descripcion: str | None = None,
+        elementos: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Crea un dashboard con las preguntas indicadas (dos por fila)."""
+        """Crea un dashboard a todo el ancho. Indica el contenido con `pregunta_ids`
+        (tamaño automático) o, para un dashboard ordenado, con `elementos`, una lista
+        en orden de lectura donde cada elemento es uno de:
+        {"seccion": "Título"} · {"texto": "markdown"} ·
+        {"pregunta_id": 12, "tamano": "kpi" | "tercio" | "medio" | "ancho"}.
+        Las preguntas se colocan por filas (4 kpi, 3 tercios, 2 medios o 1 ancho) y cada
+        sección o texto empieza fila nueva. Sin tamaño: KPI pequeños, tablas a todo el
+        ancho y el resto a media anchura."""
         return s.auditado(
             "crear_dashboard", "BI DASHBOARD",
-            lambda: exigir_bi().crear_dashboard(nombre, pregunta_ids, descripcion).como_dict(),
+            lambda: exigir_bi().crear_dashboard(
+                nombre, elementos_dashboard(pregunta_ids, elementos), descripcion
+            ).como_dict(),
         )
 
     @servidor.tool(annotations=_BI)
-    def anadir_a_dashboard(dashboard_id: int, pregunta_ids: list[int]) -> dict[str, Any]:
-        """Añade preguntas a un dashboard existente conservando las que ya tiene."""
+    def anadir_a_dashboard(
+        dashboard_id: int, pregunta_ids: list[int] | None = None,
+        elementos: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Añade preguntas, secciones o textos debajo de lo que ya tiene un dashboard,
+        conservándolo (mismo formato que crear_dashboard)."""
         return s.auditado(
             "anadir_a_dashboard", "BI DASHBOARD",
-            lambda: exigir_bi().anadir_a_dashboard(dashboard_id, pregunta_ids).como_dict(),
+            lambda: exigir_bi().anadir_a_dashboard(
+                dashboard_id, elementos_dashboard(pregunta_ids, elementos)
+            ).como_dict(),
         )
 
     servidor.servicio = s  # type: ignore[attr-defined]  # acceso para tests

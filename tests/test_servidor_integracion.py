@@ -118,6 +118,19 @@ def test_flujo_completo_de_la_demo(entorno, conn_admin: psycopg.Connection) -> N
     dashboard = sesion.llamar("crear_dashboard", nombre="Ventas", pregunta_ids=[pregunta["id"]])
     assert dashboard["url"].endswith("/dashboard/1")
 
+    # Dashboard ordenado con secciones, KPI y ajustes de presentación (bloque B):
+    kpi = sesion.llamar("crear_pregunta", nombre="Total", visualizacion="numero",
+                        sql="SELECT sum(total) AS total FROM v_ventas_estado",
+                        ajustes={"formatos": {"total": "moneda"}})
+    panel = sesion.llamar("crear_dashboard", nombre="Panel", elementos=[
+        {"seccion": "Resumen"}, {"pregunta_id": kpi["id"]},
+        {"seccion": "Detalle"}, {"pregunta_id": pregunta["id"], "tamano": "ancho"},
+    ])
+    assert panel["ok"] and len(simulado.dashboards[2]["dashcards"]) == 4
+    sin_objetivo = sesion.llamar("crear_pregunta", nombre="Meta", visualizacion="progreso",
+                                 sql="SELECT total FROM v_ventas_estado")
+    assert sin_objetivo["ok"] is False and "objetivo" in sin_objetivo["error"]
+
     esquema = sesion.llamar("listar_esquema")
     pedidos = next(o for o in esquema["objetos"] if o["nombre"] == "pedidos")
     assert pedidos["filas"] == 3 and pedidos["claves_foraneas"][0]["tabla_referenciada"] == "clientes"
