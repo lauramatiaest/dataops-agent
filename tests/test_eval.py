@@ -254,3 +254,18 @@ def test_lanzador_rechaza_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         run_eval.main(["--si"])
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-prueba"
+
+
+def test_transcripcion_con_eventos_de_texto() -> None:
+    """Claude Code puede emitir eventos cuyo "message" es texto (errores, avisos)."""
+    lineas = [
+        json.dumps({"type": "system", "message": "aviso en texto"}),
+        json.dumps({"type": "assistant", "message": "texto suelto"}),
+        json.dumps(["no es un objeto"]),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "mcp__sql__ejecutar_sql", "input": {"sql": "SELECT 1"}}]}}),
+        json.dumps({"type": "result", "result": "Hecho", "num_turns": 2}),
+    ]
+    analisis = run_eval.analizar_transcripcion(lineas)
+    assert analisis["respuesta"] == "Hecho" and analisis["turnos"] == 2
+    assert analisis["herramientas"] == {"mcp__sql__ejecutar_sql": 1}

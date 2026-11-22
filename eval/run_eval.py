@@ -138,8 +138,14 @@ def analizar_transcripcion(lineas: list[str]) -> dict[str, Any]:
             evento = json.loads(linea)
         except json.JSONDecodeError:
             continue
+        if not isinstance(evento, dict):
+            continue
         tipo = evento.get("type")
-        contenido = (evento.get("message") or {}).get("content") or []
+        mensaje = evento.get("message")
+        # Algunos eventos (errores, avisos del sistema) traen "message" como texto.
+        contenido = (mensaje.get("content") if isinstance(mensaje, dict) else None) or []
+        if not isinstance(contenido, list):
+            contenido = []
         if tipo == "assistant":
             for bloque in contenido:
                 if isinstance(bloque, dict) and bloque.get("type") == "tool_use":
@@ -430,6 +436,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--dir-datos", type=Path, default=RAIZ / "datos")
     parser.add_argument("--si", action="store_true", help="no pedir confirmación")
     parser.add_argument("--solo-resumen", type=Path, default=None)
+    parser.add_argument(
+        "--continuar", type=Path, default=None,
+        help="carpeta de una ejecución interrumpida: hace solo lo que falta, en la misma carpeta",
+    )
     args = parser.parse_args(argv)
 
     if args.solo_resumen:
@@ -462,25 +472,49 @@ def main(argv: list[str] | None = None) -> None:
     if not args.si and input("¿Continuar? [s/N] ").strip().lower() != "s":
         return
 
-    dir_salida = args.salida / datetime.now().strftime("%Y%m%d-%H%M%S")
+    dir_salida = args.continuar or args.salida / datetime.now().strftime("%Y%m%d-%H%M%S")
     dir_salida.mkdir(parents=True, exist_ok=True)
     args.dir_datos = args.dir_datos.resolve()
     manifiestos = cargar_manifiestos(args.dir_datos)
     if "demo" not in manifiestos:
         sys.exit(f"No hay datos en {args.dir_datos}: ejecuta `python datos/generar_datos.py`.")
     ruta_filas = dir_salida / "ejecuciones.jsonl"
-    filas = []
+    filas = [json.loads(x) for x in ruta_filas.read_text(encoding="utf-8").splitlines()
+             if x.strip()] if ruta_filas.exists() else []
+    hechas = {(f["configuracion"], f["tarea"], f["repeticion"]) for f in filas}
+    if hechas:
+        print(f"Se reanudan: {len(hechas)} ejecuciones ya hechas en {dir_salida}.")
+    fallidas = 0
+    numero = 0
     for repeticion in range(1, args.repeticiones + 1):
         for tarea in lista:
             for configuracion in args.configuraciones:
-                print(f"[{len(filas) + 1}/{total}] {configuracion} tarea {tarea['id']} "
+                numero += 1
+                if (configuracion, tarea["id"], repeticion) in hechas:
+                    continue
+                print(f"[{numero}/{total}] {configuracion} tarea {tarea['id']} "
                       f"(rep. {repeticion})...", flush=True)
-                fila = ejecutar_una(tarea, configuracion, repeticion, cfg, args, dir_salida,
-                                    manifiestos)
+                try:
+                    fila = ejecutar_una(tarea, configuracion, repeticion, cfg, args,
+                                        dir_salida, manifiestos)
+                except Exception as error:  # una ejecución rota no tira la evaluación entera
+                    fallidas += 1
+                    with (dir_salida / "errores_lanzador.jsonl").open("a", encoding="utf-8") as f:
+                        f.write(json.dumps({
+                            "configuracion": configuracion, "tarea": tarea["id"],
+                            "repeticion": repeticion,
+                            "error": f"{type(error).__name__}: {error}",
+                        }, ensure_ascii=False) + "\n")
+                    print(f"    ⚠  error del lanzador ({type(error).__name__}); queda "
+                          "pendiente y se reintenta con --continuar", flush=True)
+                    continue
                 filas.append(fila)
                 with ruta_filas.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(fila, ensure_ascii=False, default=str) + "\n")
                 print(f"    {'✔' if fila['exito'] else '✘'}  {fila['segundos']} s", flush=True)
+    if fallidas:
+        print(f"\n{fallidas} ejecuciones fallaron por un error del lanzador (no del agente); "
+              f"vuelve a lanzar con --continuar {dir_salida}")
     resumen = resumir(filas)
     (dir_salida / "resumen.md").write_text(resumen, encoding="utf-8")
     print("\n" + resumen + f"\nResultados en {dir_salida}")
