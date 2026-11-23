@@ -17,10 +17,10 @@ import psycopg
 import pytest
 from mcp import Client
 
-from dataops_agent.bi import MetabaseAdapter
 from dataops_agent.config import Config
+from dataops_agent.metabase import MetabaseAdapter
 from dataops_agent.servidor import crear_servidor
-from tests.test_bi_metabase import MetabaseSimulado
+from tests.test_metabase import MetabaseSimulado
 
 CLIENTES = "cliente_id,nombre,ciudad\n1,Ana,Madrid\n2,Luis,Sevilla\n"
 PEDIDOS = "pedido_id,cliente_id,importe,estado\n10,1,100.50,entregado\n11,1,20.00,cancelado\n12,2,5.25,entregado\n"
@@ -146,18 +146,6 @@ def test_flujo_completo_de_la_demo(entorno, conn_admin: psycopg.Connection) -> N
         ([e["id"] for e in aplicaciones],),
     ).fetchall()
     assert sorted(f[0] for f in filas) == sorted(e["plan_id"] for e in aplicaciones)
-
-    # M-19: la descripción guardada en el modelo llega a Metabase al sincronizar,
-    # aunque Metabase ya tuviera otra (la primera que importó).
-    doc = sesion.llamar("planificar_documentacion", descripciones={
-        "clientes": {"descripcion": "Una fila por cliente.",
-                     "columnas": {"cliente_id": "Identificador del cliente."}},
-    })
-    sesion.llamar("aplicar_plan", plan_id=doc["plan_id"])
-    sync = sesion.llamar("sincronizar_bi")
-    assert sync["descripciones"]["actualizadas"] == ["clientes", "clientes.cliente_id"]
-    assert simulado.tablas[0]["description"] == "Una fila por cliente."
-    assert sesion.llamar("sincronizar_bi", descripciones=False).get("descripciones") is None
 
 
 def test_barreras(entorno, conn_admin: psycopg.Connection) -> None:

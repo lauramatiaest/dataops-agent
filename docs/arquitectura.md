@@ -17,14 +17,13 @@ Analista ──► Claude Code (CLAUDE.md + skills + permisos)
           ├─ aplicar_plan[_destructivo] ──────► PostgreSQL (rol escritor, 1 transacción)
           ├─ validaciones deterministas
           ├─ auditoría (JSONL + dataops_meta.auditoria)
-          ├─ documentación (COMMENT ON, linaje desde la auditoría, diccionario)
-          └─ BIAdapter ── MetabaseAdapter ────► Metabase (API REST) ──► PostgreSQL (lector)
+          └─ MetabaseAdapter ─────────────────► Metabase (API REST) ──► PostgreSQL (lector)
 ```
 
 Skills (`.claude/skills/`): `proyecto-completo` orquesta por fases (configuración,
-descubrimiento, diseño con aprobación, construcción, validación y documentación) a
-`ingesta`, `diagnostico-reparacion`, `modelado`, `transformacion`, `analitica-avanzada`,
-`reporting`, `validacion` y `documentacion`.
+descubrimiento, diseño con aprobación, construcción y validación) a `ingesta`,
+`diagnostico-reparacion`, `modelado`, `transformacion`, `analitica-avanzada`,
+`reporting` y `validacion`.
 
 Reparto de responsabilidades:
 
@@ -161,32 +160,33 @@ sequenceDiagram
   porque no es SQL del agente: lo construye el servidor con identificadores validados
   (`psycopg.sql.Identifier`).
 
-### ADR-10. BI detrás de una interfaz; Metabase v0.64.2.8 fijada
-- **Decisión:** `BIAdapter` (estado, sincronizar, crear/actualizar pregunta, crear
-  dashboard, añadir al dashboard, uso de objetos, publicar descripciones) con nombres
-  neutrales de visualización (13 tipos), de ajustes (ejes, series, formatos, objetivo) y
-  de elementos de dashboard (sección, texto, pregunta con tamaño kpi/tercio/medio/ancho);
-  la traducción a `visualization_settings` y a la rejilla de 24 columnas es del adaptador;
-  `MetabaseAdapter` como primera implementación. Imagen fijada a
-  `metabase/metabase:v0.64.2.8`.
+### ADR-10. Integración directa con Metabase v0.64.2.8
+- **Decisión:** un único módulo, `metabase.py`, con la clase `MetabaseAdapter` (estado,
+  sincronizar, crear pregunta y crear dashboard) y nombres neutrales de visualización
+  (13 tipos), de ajustes (ejes, desglose, series, formatos, objetivo) y de elementos de
+  dashboard (sección, texto, pregunta con tamaño kpi/tercio/medio/ancho; sin tamaño,
+  medio). La traducción a `visualization_settings` y a la rejilla de 24 columnas se hace
+  en ese módulo. Imagen fijada a `metabase/metabase:v0.64.2.8`.
+- **Alternativa retirada (23/11/2026):** una interfaz abstracta (`BIAdapter`) para poder
+  añadir otra herramienta de BI. Con una sola implementación era complejidad sin uso; si
+  hiciera falta Superset, se extraería la interfaz entonces. Por la misma razón se
+  retiraron la edición de preguntas y dashboards existentes, la colocación automática
+  por tipo de gráfico y la consulta de uso de objetos: un cambio de presentación se hace
+  creando un dashboard nuevo.
 - **Verificación de la API:** los endpoints se comprobaron en el código fuente y en la
   especificación OpenAPI (`docs/api.json`) de esa versión, no de memoria:
   `POST /api/session` (`X-Metabase-Session`) o clave de API (`X-API-Key`);
   `POST /api/card` con consulta nativa `{"type": "native", ...}` (sigue aceptándose y se
-  normaliza a MBQL 5); `PUT /api/dashboard/:id` con `dashcards` (desde 0.48; reemplaza el
-  conjunto completo, por eso el adaptador reenvía las tarjetas existentes);
-  `POST /api/dashboard/:id/cards` ya no existe (eliminado en 0.47); las tarjetas de
-  título y texto son *dashcards* virtuales (`card_id` nulo y
-  `visualization_settings.virtual_card`); las descripciones se escriben con
-  `PUT /api/table/:id` y `PUT /api/field/:id`, porque Metabase solo copia el comentario
-  de PostgreSQL cuando su descripción está vacía y no lo actualiza al sincronizar.
-- **Consecuencias:** añadir Superset = escribir `SupersetAdapter`. El SQL de las
-  preguntas pasa el validador y se califica con el esquema (Metabase no tiene el
-  `search_path` del servidor). Probado contra un simulador que reproduce los esquemas
-  cerrados de la API y **con Metabase real** (dashboards creados por el agente). Lección
-  de esa prueba: el simulador solo vale lo que se parezca a la versión real (el formato
-  `stages` de las preguntas no estaba simulado y ocultó un fallo de la documentación).
-  No hay filtros interactivos de dashboard (trabajo futuro).
+  normaliza a MBQL 5); `PUT /api/dashboard/:id` con `dashcards` (desde 0.48; fija el
+  conjunto completo de tarjetas); `POST /api/dashboard/:id/cards` ya no existe
+  (eliminado en 0.47); las tarjetas de título y texto son *dashcards* virtuales
+  (`card_id` nulo y `visualization_settings.virtual_card`).
+- **Consecuencias:** el SQL de las preguntas pasa el validador y se califica con el
+  esquema (Metabase no tiene el `search_path` del servidor). Probado contra un simulador
+  que reproduce los esquemas cerrados de la API y **con Metabase real** (dashboards
+  creados por el agente). Lección de esa prueba: el simulador solo vale lo que se parezca
+  a la versión real (el formato `stages` de las preguntas no estaba simulado y ocultó un
+  fallo). No hay filtros interactivos de dashboard (trabajo futuro).
 
 ### ADR-11. Transformaciones como vistas
 - **Decisión:** la lógica analítica son vistas `v_*` y los dashboards leen de ellas.
@@ -217,8 +217,7 @@ sequenceDiagram
 ### ADR-14. Idioma y estilo del código
 - **Decisión:** identificadores, comentarios y mensajes en español, de forma
   consistente con los nombres de las herramientas pedidos (`perfilar_fichero`…);
-  nombres de interfaz pedidos explícitamente en inglés (`BIAdapter`,
-  `MetabaseAdapter`). Tipado en todo el código, dataclasses inmutables donde aplica,
+  `MetabaseAdapter` en inglés, como se pidió en el diseño inicial. Tipado en todo el código, dataclasses inmutables donde aplica,
   ruff con línea de 100.
 
 ### ADR-15. El servidor MCP como aplicación independiente por HTTP
@@ -247,21 +246,22 @@ sequenceDiagram
 - **Consecuencias:** el fichero entregado no se toca nunca (además, montado en solo
   lectura). Los cambios de formato quedan fuera a propósito.
 
-### ADR-17. Documentación: hechos del sistema, significado en el modelo
-- **Decisión:** los hechos (tipos, claves, filas, linaje desde la auditoría, uso en BI)
-  los genera el servidor; el significado de negocio lo redacta el agente y se guarda
-  como `COMMENT ON` con plan. El `COMMENT ON` lo construye el servidor con el texto como
-  literal (`psycopg.sql.Literal`), sin pasar por el validador: el texto nunca se
-  interpreta como SQL. El diccionario Markdown es un documento generado y
-  `sincronizar_bi` copia las descripciones a Metabase.
-- **Consecuencias:** la documentación no se desincroniza del modelo; una descripción
-  editada a mano en Metabase se sustituye por la del modelo (fuente de verdad).
+### ADR-17. Documentación del modelo (retirada el 23/11/2026)
+- **Decisión inicial:** descripciones de negocio guardadas como `COMMENT ON` con plan,
+  linaje desde la auditoría y diccionario en Markdown, copiados a Metabase al
+  sincronizar.
+- **Por qué se retiró:** no forma parte del objetivo central (construir el modelo y los
+  dashboards con barreras) y añadía un módulo, tres herramientas y una skill que había
+  que mantener y justificar en el plazo del TFG. Queda como trabajo futuro.
 
 ### ADR-18. Capacidades analíticas en skills, no en el núcleo
-- **Decisión:** RFM, ABC/Pareto, cohortes y tendencias son plantillas SQL de la skill
+- **Decisión:** segmentación de clientes, ABC/Pareto y tendencias son plantillas SQL de la skill
   `analitica-avanzada` que se aplican con `planificar_vista`; la orquestación por fases
   es otra skill (`proyecto-completo`) con un punto de control humano para aprobar el
-  diseño. Ninguna de las dos añade herramientas al servidor.
+  diseño. Ninguna de las dos añade herramientas al servidor. La segmentación usa dos
+  umbrales fijos (90 días y 5 pedidos) en lugar de quintiles RFM y no hay cohortes
+  (simplificación del 23/11/2026): la regla se explica en una frase y se cambia
+  editando dos números.
 - **Consecuencias:** demuestra la extensibilidad del enfoque (capacidades nuevas
   editando texto) y mantiene la superficie de seguridad del servidor. Las plantillas
   tienen un test de integración que las extrae del propio `SKILL.md` y compara sus

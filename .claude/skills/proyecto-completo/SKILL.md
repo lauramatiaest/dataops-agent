@@ -1,6 +1,6 @@
 ---
 name: proyecto-completo
-description: Orquesta un proyecto de datos de principio a fin en seis fases (configuración, descubrimiento, diseño, construcción, validación y documentación) con un punto de control humano para aprobar el diseño antes de construir. Úsala cuando la persona pida construir un modelo o un dashboard "desde cero", "completo", "de principio a fin" a partir de unos ficheros, o retomar un proyecto a medias. No la uses para peticiones concretas (cargar un fichero, crear una vista o un dashboard), que resuelven las skills de cada fase.
+description: Orquesta un proyecto de datos de principio a fin en cinco fases (configuración, descubrimiento, diseño, construcción y validación) con un punto de control humano para aprobar el diseño antes de construir. Úsala cuando la persona pida construir un modelo o un dashboard "desde cero", "completo", "de principio a fin" a partir de unos ficheros, o retomar un proyecto a medias. No la uses para peticiones concretas (cargar un fichero, crear una vista o un dashboard), que resuelven las skills de cada fase.
 ---
 
 # Proyecto completo por fases
@@ -17,9 +17,8 @@ queda) para que la persona pueda seguir el avance o interrumpir.
 | 3. Diseño | — | propuesta de modelo | **aprobación expresa de la persona** |
 | 4. Construcción | `ingesta`, `diagnostico-reparacion`, `modelado`, `transformacion`, `analitica-avanzada`, `reporting` | tablas, relaciones, vistas y dashboards | cada plan aplicado y cada carga validada |
 | 5. Validación | `validacion` | informe de controles | todos los controles en verde |
-| 6. Documentación | `documentacion` | comentarios y diccionario | — |
 
-Anuncia cada fase al empezarla ("Fase 3/6 · Diseño").
+Anuncia cada fase al empezarla ("Fase 3/5 · Diseño").
 
 ## Fase 1 · Configuración (y retomar)
 
@@ -93,11 +92,6 @@ Repaso final, aunque cada carga ya se validara:
 
 Entregable: tabla de controles (control, esperado, obtenido, resultado). Si alguno
 falla, vuelve a la fase 4 para corregirlo y repite la validación.
-
-## Fase 6 · Documentación
-
-Skill `documentacion`: descripciones de negocio de tablas, vistas y columnas
-(incluidas las reglas aprobadas en la fase 3) y `generar_diccionario`.
 
 ## Cierre
 

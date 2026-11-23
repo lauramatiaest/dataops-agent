@@ -40,14 +40,13 @@ las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 | Entender los ficheros y cargarlos | `ingesta` | listar_ficheros, perfilar_fichero, planificar_tabla, planificar_carga |
 | Claves y relaciones | `modelado` | listar_esquema, comprobar_relacion, planificar_clave, planificar_relacion |
 | Vistas analíticas | `transformacion` | planificar_vista, consultar_solo_lectura |
-| RFM, ABC/Pareto, cohortes, tendencias | `analitica-avanzada` | consultar_solo_lectura, planificar_vista |
+| Segmentación de clientes, ABC/Pareto, tendencias | `analitica-avanzada` | consultar_solo_lectura, planificar_vista |
 | Preguntas y dashboards | `reporting` | estado_bi, sincronizar_bi, crear_pregunta, crear_dashboard |
 | Comprobaciones | `validacion` | validar_carga, comprobar_relacion, consultar_solo_lectura |
 | Datos estropeados | `diagnostico-reparacion` | perfilar_fichero, planificar_carga_transformada, validar_carga |
-| Documentar el modelo | `documentacion` | describir_modelo, planificar_documentacion, generar_diccionario |
 
 Orden habitual: ingesta → validación → modelado → transformación (y analítica
-avanzada) → reporting → documentación. Para un proyecto completo, la skill
+avanzada) → reporting. Para un proyecto completo, la skill
 `proyecto-completo` recorre esas fases con un punto de control: **no se construye
 nada hasta que la persona aprueba el diseño**.
 

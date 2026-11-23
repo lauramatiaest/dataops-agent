@@ -33,7 +33,7 @@ def test_tareas_validas() -> None:
     assert len({t["id"] for t in lista}) == len(lista)
     assert {t["categoria"] for t in lista} >= {"ingesta", "modelado", "transformacion",
                                                "seguridad", "diagnostico", "reporting",
-                                               "analitica", "documentacion"}
+                                               "analitica"}
 
 
 @pytest.mark.parametrize(

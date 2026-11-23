@@ -11,8 +11,9 @@ sintéticos.
 > **Estado (22/11/2026):** prototipo completo y probado de extremo a extremo en
 > Windows 11 con Docker Desktop: PostgreSQL 16 y Metabase reales, servidor MCP por HTTP,
 > uso interactivo desde Claude Code (proyecto completo por fases, aprobación humana de
-> lo destructivo, reparación de entregas defectuosas, analítica avanzada, dashboards y
-> documentación) y **evaluación A/B ejecutada** con `claude -p` (92 ejecuciones). Batería
+> lo destructivo, reparación de entregas defectuosas, analítica avanzada y dashboards) y
+> **evaluación A/B ejecutada** con `claude -p`. El 23/11 se simplificó el alcance (ver
+> [Estado y limitaciones](#estado-y-limitaciones)). Batería
 > de tests contra PostgreSQL real en verde (también en CI). Detalle en
 > [Estado y limitaciones](#estado-y-limitaciones).
 
@@ -34,16 +35,13 @@ servidor MCP propio que solo ofrece operaciones seguras:
 - **Valida de forma determinista** cada carga (recuentos, sumas de control, unicidad).
 - **Audita** cada llamada (quién, qué, cuándo, resultado, plan) en una tabla de solo
   anexado y en JSONL.
-- **Analiza en profundidad:** segmentación RFM de clientes, ABC/Pareto de productos,
-  retención por cohortes y variación interanual, como vistas con SQL probado.
+- **Analiza en profundidad:** segmentación de clientes por recencia y frecuencia,
+  ABC/Pareto de productos y variación interanual, como vistas con SQL probado.
 - **Publica** dashboards completos en Metabase (fila de KPI, secciones, 13 tipos de
-  gráfico con formato) mediante un adaptador intercambiable.
+  gráfico con formato).
 - **Trabaja por fases** en un proyecto completo (configuración, descubrimiento, diseño,
-  construcción, validación y documentación) y no construye nada hasta que la persona
-  aprueba el diseño.
-- **Documenta** el modelo: descripciones de negocio guardadas como comentarios en
-  PostgreSQL (con plan), linaje desde la auditoría y diccionario de datos en Markdown
-  con diagrama entidad-relación (`docs/modelo/diccionario.md`).
+  construcción y validación) y no construye nada hasta que la persona aprueba el
+  diseño.
 
 El comportamiento del agente (cuándo perfilar, cuándo preguntar, cómo validar) vive en
 `CLAUDE.md` y en **skills** (`.claude/skills/*/SKILL.md`), de modo que se puede ampliar
@@ -64,7 +62,7 @@ flowchart LR
     subgraph CC [Claude Code · suscripción]
         direction TB
         M[CLAUDE.md<br/>reglas del agente]
-        S[Skills<br/>proyecto-completo · fases<br/>ingesta · modelado · transformación<br/>analítica avanzada · reporting<br/>validación · diagnóstico · documentación]
+        S[Skills<br/>proyecto-completo · fases<br/>ingesta · modelado · transformación<br/>analítica avanzada · reporting<br/>validación · diagnóstico]
         P[Permisos .claude/settings.json<br/>ask: aplicar_plan_destructivo]
     end
 
@@ -77,7 +75,7 @@ flowchart LR
         PL[Planes<br/>planificar → aplicar]
         VA[Validaciones<br/>deterministas]
         AU[Auditoría<br/>JSONL + tabla]
-        BI[BIAdapter]
+        BI[MetabaseAdapter]
         H --> V & PL & VA & AU
         H --> BI
     end
@@ -247,7 +245,7 @@ sesión); `aplicar_plan_destructivo` **pide aprobación siempre**.
    y la regla de los cancelados).
 2. Tras aprobar: cargas validadas, relaciones sin huérfanos, vistas y dashboard con
    fila de KPI y secciones.
-3. *"Haz una segmentación RFM de los clientes y añade una sección de clientes."*
+3. *"Haz una segmentación de los clientes y un dashboard de clientes."*
 4. *"Borra la tabla clientes."* / *"Elimina los pedidos cancelados."* → planes
    bloqueados por dependientes y por filas hijas; se enseña la auditoría.
 
@@ -255,10 +253,13 @@ Guion completo con tiempos, frases y plan B: [docs/demo.md](docs/demo.md).
 
 ## Evaluación
 
-Banco de 23 tareas con resultado conocido y comparación **A** (Claude Code con SQL
+Banco de 22 tareas con resultado conocido y comparación **A** (Claude Code con SQL
 directo, sin barreras) frente a **B** (Claude Code + skills + MCP propio), lanzada con
-`claude -p`: 23 tareas × 2 configuraciones × 2 repeticiones = 92 ejecuciones
-(22/11/2026).
+`claude -p`: 22 tareas × 2 configuraciones × 2 repeticiones.
+
+Resultados de la ejecución del 22/11/2026, con el banco anterior de 23 tareas (92
+ejecuciones; la tarea 23, de documentación, se retiró con esa funcionalidad el 23/11 y
+la configuración B se vuelve a ejecutar tras la simplificación):
 
 | | A | B |
 |---|---|---|
@@ -289,15 +290,15 @@ validez y detalle en [eval/README.md](eval/README.md).
 │   ├── seguridad/validador_sql.py
 │   ├── planes.py · planificador.py · aplicador.py
 │   ├── perfilado.py · ficheros.py · validaciones.py · catalogo.py
-│   ├── transformaciones.py · documentacion.py · transporte_http.py
+│   ├── transformaciones.py · transporte_http.py
 │   ├── auditoria.py · conexion.py · config.py · admin.py
-│   ├── bi/base.py (BIAdapter) · bi/metabase.py (MetabaseAdapter)
+│   ├── metabase.py               # integración con la API de Metabase
 │   └── sql/roles.sql · sql/proyecto.sql
 ├── datos/generar_datos.py        # datos sintéticos + variante estropeada
 ├── scripts/configurar_metabase.py
 ├── eval/                         # tareas YAML, comparador, lanzador A/B
 ├── tests/                        # pytest (unitarios + integración)
-└── docs/arquitectura.md · docs/demo.md · docs/modelo/diccionario.md
+└── docs/arquitectura.md · docs/demo.md
 ```
 
 ## Estado y limitaciones
@@ -316,6 +317,14 @@ contra un simulador de su API, comparador y lanzador de la evaluación con un Cl
 simulado.
 
 **Evaluación A/B con `claude -p` real:** ejecutada (ver [Evaluación](#evaluación)).
+
+**Simplificación del 23/11/2026:** para ajustar el alcance al plazo se retiraron la
+documentación del modelo (comentarios, linaje y diccionario), la segmentación RFM por
+quintiles y las cohortes (sustituidas por una segmentación con dos umbrales), la
+edición de preguntas y dashboards existentes (un cambio se hace creando un dashboard
+nuevo), la interfaz genérica de BI (solo hay integración con Metabase) y la lectura de
+JSON Lines. Se mantienen los dashboards con KPI, secciones, desglose apilado y gráfico
+combinado.
 
 **Limitaciones conocidas:**
 - El validador es análisis estático: es la primera barrera, no la única (los

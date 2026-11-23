@@ -45,7 +45,7 @@ def _frontmatter(ruta: Path) -> tuple[dict[str, str], str]:
 def test_skills_esperadas() -> None:
     nombres = {p.parent.name for p in SKILLS}
     assert nombres == {"ingesta", "modelado", "transformacion", "reporting", "validacion",
-                       "diagnostico-reparacion", "documentacion", "analitica-avanzada",
+                       "diagnostico-reparacion", "analitica-avanzada",
                        "proyecto-completo"}
 
 

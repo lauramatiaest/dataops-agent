@@ -24,7 +24,6 @@ from psycopg import sql
 from dataops_agent import catalogo
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config, validar_identificador
-from dataops_agent.documentacion import sql_comentario
 from dataops_agent.ficheros import FicheroTabular, abrir, huella
 from dataops_agent.planes import AlmacenPlanes, EstadoPlan, Paso, Plan, TipoPaso
 from dataops_agent.seguridad import Modo, ValidadorSQL
@@ -68,8 +67,6 @@ class Aplicador:
                 for paso in plan.pasos:
                     if paso.tipo is TipoPaso.SQL:
                         conn.execute(paso.sql)  # type: ignore[arg-type]  # validado arriba
-                    elif paso.tipo is TipoPaso.COMENTARIO:
-                        conn.execute(sql_comentario(conn, self.cfg.esquema, paso))
                     else:
                         verificaciones.append(self._cargar(conn, paso))
             # Si se llega aquí, la transacción se ha confirmado (COMMIT).

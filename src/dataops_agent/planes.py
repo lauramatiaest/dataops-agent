@@ -32,7 +32,6 @@ class TipoPlan(StrEnum):
     RELACION = "relacion"
     VISTA = "vista"
     BORRADO = "borrado"
-    DOCUMENTACION = "documentacion"
 
 
 class EstadoPlan(StrEnum):
@@ -45,9 +44,6 @@ class EstadoPlan(StrEnum):
 class TipoPaso(StrEnum):
     SQL = "sql"  # sentencia SQL que se valida y ejecuta tal cual
     CARGA = "carga"  # COPY de un fichero a una tabla (lo construye el servidor)
-    # COMMENT ON construido por el servidor con identificadores validados y el texto como
-    # literal: el texto redactado por el agente nunca se interpreta como SQL.
-    COMENTARIO = "comentario"
 
 
 @dataclass(frozen=True)
@@ -66,9 +62,6 @@ class Paso:
     huella_fichero: str | None = None
     # Reparación declarativa aplicada al leer el fichero (el fichero no se modifica).
     transformacion: Transformacion | None = None
-    # Solo para pasos de comentario: objeto en ``tabla``, columna (o None) y texto.
-    columna: str | None = None
-    texto: str | None = None
 
 
 @dataclass

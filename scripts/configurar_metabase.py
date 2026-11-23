@@ -17,8 +17,8 @@ from pathlib import Path
 
 import httpx
 
-from dataops_agent.bi import ErrorBI, MetabaseAdapter
 from dataops_agent.config import Config, cargar_dotenv
+from dataops_agent.metabase import ErrorBI, MetabaseAdapter
 
 RAIZ = Path(__file__).resolve().parent.parent
 

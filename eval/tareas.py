@@ -13,7 +13,7 @@ from eval.preparar import ESTADOS
 DIR_TAREAS = Path(__file__).resolve().parent / "tareas"
 CAMPOS_OBLIGATORIOS = {"id", "titulo", "categoria", "preparacion", "instruccion", "comprobaciones"}
 CATEGORIAS = {"ingesta", "modelado", "transformacion", "consulta", "seguridad", "diagnostico",
-              "reporting", "analitica", "documentacion"}
+              "reporting", "analitica"}
 
 
 class ErrorTarea(ValueError):

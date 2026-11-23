@@ -10,13 +10,11 @@ Herramientas (agrupadas por riesgo):
   comprobar_relacion, validar_carga, ver_auditoria, listar_planes_pendientes.
 * Planificación (no modifican nada): planificar_tabla, planificar_carga,
   planificar_carga_transformada, planificar_clave, planificar_relacion,
-  planificar_vista, planificar_borrado, planificar_documentacion, descartar_plan.
-* Documentación (lectura): describir_modelo, generar_diccionario.
+  planificar_vista, planificar_borrado, descartar_plan.
 * Escritura: aplicar_plan (solo planes NO destructivos) y aplicar_plan_destructivo
   (Claude Code pide siempre aprobación humana por la regla "ask" de
   .claude/settings.json).
-* BI: estado_bi, sincronizar_bi, crear_pregunta, actualizar_pregunta,
-  crear_dashboard, anadir_a_dashboard.
+* BI: estado_bi, sincronizar_bi, crear_pregunta, crear_dashboard.
 
 Arranque: ``dataops-mcp`` (o ``python -m dataops_agent.servidor``), transporte stdio.
 """
@@ -36,20 +34,19 @@ import psycopg
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from dataops_agent import catalogo, documentacion, validaciones
+from dataops_agent import catalogo, validaciones
 from dataops_agent.aplicador import Aplicador, RequiereConfirmacion
 from dataops_agent.auditoria import EventoAuditoria, RegistroAuditoria, Resultado
-from dataops_agent.bi import (
+from dataops_agent.conexion import GestorConexiones
+from dataops_agent.config import Config, cargar_dotenv, validar_identificador
+from dataops_agent.ficheros import EXTENSIONES, ErrorFichero, abrir
+from dataops_agent.metabase import (
     Ajustes,
-    BIAdapter,
     ErrorBI,
     MetabaseAdapter,
     Pregunta,
     elementos_dashboard,
 )
-from dataops_agent.conexion import GestorConexiones
-from dataops_agent.config import Config, cargar_dotenv, validar_identificador
-from dataops_agent.ficheros import EXTENSIONES, ErrorFichero, abrir
 from dataops_agent.perfilado import perfilar
 from dataops_agent.planes import AlmacenPlanes, ErrorPlan, TipoPaso
 from dataops_agent.planificador import ColumnaDef, ErrorPlanificacion, Planificador
@@ -97,7 +94,7 @@ def a_json(valor: Any) -> Any:
 class Servicio:
     """Agrupa las dependencias del servidor y la lógica de auditoría de cada llamada."""
 
-    def __init__(self, cfg: Config, bi: BIAdapter | None = None) -> None:
+    def __init__(self, cfg: Config, bi: MetabaseAdapter | None = None) -> None:
         self.cfg = cfg
         self.gestor = GestorConexiones(cfg)
         self.validador = ValidadorSQL(cfg.esquema)
@@ -157,7 +154,7 @@ class Servicio:
         return a_json(respuesta)
 
 
-def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
+def crear_servidor(cfg: Config, bi: MetabaseAdapter | None = None) -> MCPServer:
     """Construye el servidor MCP con todas sus herramientas."""
     s = Servicio(cfg, bi)
     servidor = MCPServer(name="dataops", instructions=INSTRUCCIONES, version="0.1.0")
@@ -186,44 +183,6 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
             lambda: perfilar(abrir(cfg.dir_datos, ruta)).como_dict(),
             detalle={"ruta": ruta},
         )
-
-    def _modelo(incluir_bi: bool) -> dict[str, Any]:
-        uso = None
-        if incluir_bi and s.bi is not None:
-            with s.gestor.lectura() as conn:
-                nombres = list(catalogo.objetos(conn, cfg.esquema))
-            try:
-                uso = s.bi.uso_de_objetos(nombres)
-            except Exception:  # BI caído o sin soporte: se documenta igualmente
-                uso = None
-        with s.gestor.lectura() as conn:
-            return documentacion.describir_modelo(
-                conn, cfg.esquema, s.auditoria.leer_jsonl(), uso
-            )
-
-    @servidor.tool(annotations=_LECTURA)
-    def describir_modelo(incluir_bi: bool = True) -> dict[str, Any]:
-        """Descripción completa del modelo para documentarlo: por objeto, columnas, tipos,
-        claves, relaciones, descripciones ya guardadas, definición y dependencias de las
-        vistas, linaje de cargas (fichero y plan, desde la auditoría) y, si `incluir_bi`,
-        las preguntas y dashboards de BI que lo usan. Lista lo pendiente de documentar."""
-        return s.auditado("describir_modelo", "DESCRIBIR MODELO", lambda: _modelo(incluir_bi))
-
-    @servidor.tool(annotations=_LECTURA)
-    def generar_diccionario(incluir_bi: bool = True) -> dict[str, Any]:
-        """Diccionario de datos del modelo en Markdown (con diagrama entidad-relación en
-        Mermaid), generado a partir de los hechos del catálogo y de las descripciones
-        guardadas. Guárdalo tal cual en docs/modelo/diccionario.md."""
-
-        def accion() -> dict[str, Any]:
-            modelo = _modelo(incluir_bi)
-            return {
-                "markdown": documentacion.diccionario_markdown(modelo),
-                "ruta_sugerida": "docs/modelo/diccionario.md",
-                "pendiente_de_documentar": modelo["pendiente_de_documentar"],
-            }
-
-        return s.auditado("generar_diccionario", "GENERAR DICCIONARIO", accion)
 
     @servidor.tool(annotations=_LECTURA)
     def listar_esquema() -> dict[str, Any]:
@@ -456,19 +415,6 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         )
 
     # ============================================================ ESCRITURA
-    @servidor.tool(annotations=_PLANIFICA)
-    def planificar_documentacion(descripciones: dict[str, Any]) -> dict[str, Any]:
-        """Plan para guardar descripciones de negocio como comentarios del modelo
-        (COMMENT ON TABLE/VIEW/COLUMN), visibles para cualquier herramienta que lea el
-        catálogo. `descripciones`: {objeto: {"descripcion": "...", "columnas":
-        {columna: "..."}}} (máx. 500 caracteres cada una). No es destructivo; si sustituye
-        descripciones existentes, el plan lo enseña. Aplica con aplicar_plan."""
-        return s.auditado(
-            "planificar_documentacion", "PLAN DOCUMENTACION",
-            lambda: s.planificador.documentacion(descripciones).como_dict(),
-            detalle={"objetos": sorted(descripciones)},
-        )
-
     @servidor.tool(annotations=_ESCRIBE)
     def aplicar_plan(plan_id: str) -> dict[str, Any]:
         """Aplica un plan NO destructivo ya revisado (una transacción; se deshace entero
@@ -491,7 +437,7 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         )
 
     # ================================================================== BI
-    def exigir_bi() -> BIAdapter:
+    def exigir_bi() -> MetabaseAdapter:
         if s.bi is None:
             raise ErrorBI("No hay herramienta de BI configurada.")
         return s.bi
@@ -506,34 +452,12 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         return s.auditado("estado_bi", "BI ESTADO", lambda: exigir_bi().estado())
 
     @servidor.tool(annotations=_BI)
-    def sincronizar_bi(descripciones: bool = True) -> dict[str, Any]:
-        """Pide a la herramienta de BI que relea el esquema (tras crear tablas o vistas) y,
-        si `descripciones`, le copia las descripciones de negocio guardadas en el modelo
-        (tablas, vistas y columnas), sustituyendo las que difieran."""
+    def sincronizar_bi() -> dict[str, Any]:
+        """Pide a la herramienta de BI que relea el esquema (tras crear tablas o vistas)."""
 
         def accion() -> dict[str, Any]:
-            bi = exigir_bi()
-            bi.sincronizar()
-            respuesta: dict[str, Any] = {
-                "mensaje": "Sincronización solicitada (tarda unos segundos)."
-            }
-            if descripciones:
-                with s.gestor.lectura() as conn:
-                    textos = {
-                        objeto: {
-                            "descripcion": documentacion.comentario_objeto(
-                                conn, cfg.esquema, objeto),
-                            "columnas": documentacion.comentarios_columnas(
-                                conn, cfg.esquema, objeto),
-                        }
-                        for objeto in catalogo.objetos(conn, cfg.esquema)
-                    }
-                textos = {o: d for o, d in textos.items() if d["descripcion"] or d["columnas"]}
-                try:
-                    respuesta["descripciones"] = bi.publicar_descripciones(cfg.esquema, textos)
-                except ErrorBI as error:  # no impide la sincronización
-                    respuesta["descripciones"] = {"error": str(error)}
-            return respuesta
+            exigir_bi().sincronizar()
+            return {"mensaje": "Sincronización solicitada (tarda unos segundos)."}
 
         return s.auditado("sincronizar_bi", "BI SYNC", accion)
 
@@ -566,53 +490,22 @@ def crear_servidor(cfg: Config, bi: BIAdapter | None = None) -> MCPServer:
         return s.auditado("crear_pregunta", "BI PREGUNTA", accion, sql=sql)
 
     @servidor.tool(annotations=_BI)
-    def actualizar_pregunta(
-        pregunta_id: int, sql: str | None = None, nombre: str | None = None,
-        visualizacion: str | None = None, ajustes: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Modifica una pregunta existente (SQL, nombre, visualización o ajustes, con las
-        mismas opciones que crear_pregunta). Los ajustes nuevos sustituyen a los anteriores."""
-
-        def accion() -> dict[str, Any]:
-            sql_final = sql_para_bi(sql) if sql is not None else None
-            return exigir_bi().actualizar_pregunta(
-                pregunta_id, sql_final, nombre, visualizacion,
-                None if ajustes is None else Ajustes.desde_dict(ajustes),
-            ).como_dict()
-
-        return s.auditado("actualizar_pregunta", "BI PREGUNTA", accion, sql=sql)
-
-    @servidor.tool(annotations=_BI)
     def crear_dashboard(
         nombre: str, pregunta_ids: list[int] | None = None, descripcion: str | None = None,
         elementos: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Crea un dashboard a todo el ancho. Indica el contenido con `pregunta_ids`
-        (tamaño automático) o, para un dashboard ordenado, con `elementos`, una lista
+        (todas a media anchura) o, para un dashboard ordenado, con `elementos`, una lista
         en orden de lectura donde cada elemento es uno de:
         {"seccion": "Título"} · {"texto": "markdown"} ·
         {"pregunta_id": 12, "tamano": "kpi" | "tercio" | "medio" | "ancho"}.
         Las preguntas se colocan por filas (4 kpi, 3 tercios, 2 medios o 1 ancho) y cada
-        sección o texto empieza fila nueva. Sin tamaño: KPI pequeños, tablas a todo el
-        ancho y el resto a media anchura."""
+        sección o texto empieza fila nueva. Sin tamaño, una pregunta va a media anchura.
+        Para cambiar un dashboard, se crea de nuevo."""
         return s.auditado(
             "crear_dashboard", "BI DASHBOARD",
             lambda: exigir_bi().crear_dashboard(
                 nombre, elementos_dashboard(pregunta_ids, elementos), descripcion
-            ).como_dict(),
-        )
-
-    @servidor.tool(annotations=_BI)
-    def anadir_a_dashboard(
-        dashboard_id: int, pregunta_ids: list[int] | None = None,
-        elementos: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        """Añade preguntas, secciones o textos debajo de lo que ya tiene un dashboard,
-        conservándolo (mismo formato que crear_dashboard)."""
-        return s.auditado(
-            "anadir_a_dashboard", "BI DASHBOARD",
-            lambda: exigir_bi().anadir_a_dashboard(
-                dashboard_id, elementos_dashboard(pregunta_ids, elementos)
             ).como_dict(),
         )
 

@@ -71,10 +71,8 @@ HERRAMIENTAS_B = [
         "comprobar_relacion", "validar_carga", "ver_auditoria", "listar_planes_pendientes",
         "planificar_tabla", "planificar_carga", "planificar_clave", "planificar_relacion",
         "planificar_vista", "planificar_borrado", "planificar_carga_transformada",
-        "descartar_plan", "planificar_documentacion", "describir_modelo",
-        "generar_diccionario", "aplicar_plan", "estado_bi",
-        "sincronizar_bi", "crear_pregunta", "actualizar_pregunta", "crear_dashboard",
-        "anadir_a_dashboard",
+        "descartar_plan", "aplicar_plan", "estado_bi",
+        "sincronizar_bi", "crear_pregunta", "crear_dashboard",
     )
 ]
 # Respuestas que son la barrera funcionando, no un error del agente.
@@ -301,7 +299,7 @@ def objetos_del_esquema(conn: psycopg.Connection, esquema: str) -> set[str]:
 def cliente_metabase(cfg: Config) -> Any:
     """GET autenticado a Metabase para las comprobaciones de BI (o None si no hay)."""
     try:
-        from dataops_agent.bi import MetabaseAdapter
+        from dataops_agent.metabase import MetabaseAdapter
 
         mb = MetabaseAdapter(cfg)
         if not mb.estado().get("disponible"):

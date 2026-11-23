@@ -84,11 +84,6 @@ def test_json_lista_y_objeto_envoltorio(tmp_path: Path) -> None:
     assert perfil.columnas[2].nulos == 1
 
 
-def test_jsonl(tmp_path: Path) -> None:
-    _escribir(tmp_path, "e.jsonl", '{"a": 1}\n\n{"a": 2}\n')
-    assert perfilar(abrir(tmp_path, "e.jsonl")).filas == 2
-
-
 def test_ruta_fuera_del_directorio(tmp_path: Path) -> None:
     datos = tmp_path / "datos"
     datos.mkdir()

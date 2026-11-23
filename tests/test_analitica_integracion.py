@@ -26,7 +26,7 @@ from dataops_agent.planificador import Planificador
 from dataops_agent.seguridad import ValidadorSQL
 
 SKILL = Path(__file__).resolve().parent.parent / ".claude/skills/analitica-avanzada/SKILL.md"
-VISTAS = ["v_rfm_clientes", "v_abc_productos", "v_cohortes_clientes", "v_ventas_tendencia"]
+VISTAS = ["v_rfm_clientes", "v_abc_productos", "v_ventas_tendencia"]
 
 FICHEROS = {
     "clientes.csv": """cliente_id,nombre
@@ -36,6 +36,8 @@ FICHEROS = {
 4,Raúl
 5,Marta
 6,Sin compras válidas
+7,Iker
+8,Nuria
 """,
     "productos.csv": """sku,nombre,categoria
 P1,Taza,Hogar
@@ -44,6 +46,7 @@ P3,Calcetines,Moda
 P4,Nunca vendido,Hogar
 """,
     # 2025-03 solo tiene un pedido cancelado: la serie mensual tiene un hueco.
+    # Los clientes 7 y 8 tienen cinco pedidos (umbral de frecuencia de la segmentación).
     "pedidos.csv": """pedido_id,cliente_id,fecha_pedido,estado
 100,1,2025-01-10,entregado
 101,1,2025-02-05,entregado
@@ -55,6 +58,16 @@ P4,Nunca vendido,Hogar
 107,4,2026-01-30,entregado
 108,5,2026-02-01,enviado
 109,6,2025-05-05,cancelado
+110,7,2026-02-01,entregado
+111,7,2026-02-02,entregado
+112,7,2026-02-03,entregado
+113,7,2026-02-04,entregado
+114,7,2026-02-05,entregado
+115,8,2025-04-10,entregado
+116,8,2025-04-11,entregado
+117,8,2025-04-12,entregado
+118,8,2025-04-13,entregado
+119,8,2025-04-14,entregado
 """,
     "lineas_pedido.csv": """linea_id,pedido_id,ref_producto,cantidad,precio_unitario,descuento_pct
 1,100,P1,2,10.00,0
@@ -68,6 +81,16 @@ P4,Nunca vendido,Hogar
 9,107,P2,1,33.33,0
 10,108,P1,4,10.00,10
 11,109,P3,2,5.55,0
+12,110,P3,1,5.55,0
+13,111,P3,1,5.55,0
+14,112,P3,1,5.55,0
+15,113,P3,1,5.55,0
+16,114,P3,1,5.55,0
+17,115,P3,1,5.55,0
+18,116,P3,1,5.55,0
+19,117,P3,1,5.55,0
+20,118,P3,1,5.55,0
+21,119,P3,1,5.55,0
 """,
 }
 
@@ -144,13 +167,16 @@ def test_rfm(modelo, conn_admin: psycopg.Connection) -> None:
     filas = _consulta(conn_admin, "SELECT cliente_id, importe, recencia_dias, frecuencia, "
                                   "segmento_rfm FROM v_rfm_clientes ORDER BY cliente_id")
     # Solo clientes con alguna compra no cancelada (el 6 solo tiene una cancelada).
-    assert [f[0] for f in filas] == [1, 2, 3, 4, 5]
+    assert [f[0] for f in filas] == [1, 2, 3, 4, 5, 7, 8]
     assert {f[0]: f[1] for f in filas} == esperado["cliente"]
     # Recencia hasta la última fecha de los datos (2026-02-15), no hasta hoy:
-    assert {f[0]: f[2] for f in filas} == {1: 0, 2: 391, 3: 319, 4: 16, 5: 14}
-    assert filas[0][3] == 3  # el cliente 1 tiene tres pedidos válidos
-    assert {f[4] for f in filas} <= {"Campeones", "Leales", "Prometedores",
-                                     "Necesitan atención", "En riesgo", "Perdidos"}
+    assert {f[0]: f[2] for f in filas} == {1: 0, 2: 391, 3: 319, 4: 16, 5: 14, 7: 10, 8: 307}
+    assert {f[0]: f[3] for f in filas} == {1: 3, 2: 1, 3: 2, 4: 1, 5: 1, 7: 5, 8: 5}
+    # Umbrales de la skill: 90 días y 5 pedidos; los cuatro segmentos aparecen.
+    assert {f[0]: f[4] for f in filas} == {
+        1: "Ocasionales", 2: "Inactivos", 3: "Inactivos", 4: "Ocasionales",
+        5: "Ocasionales", 7: "Fieles", 8: "En riesgo",
+    }
 
 
 def test_abc(modelo, conn_admin: psycopg.Connection) -> None:
@@ -162,22 +188,6 @@ def test_abc(modelo, conn_admin: psycopg.Connection) -> None:
     assert filas[-1][2] == Decimal("100.00")
     assert filas[-1][0] == "P4" and filas[-1][1] == 0 and filas[-1][3] == "C"
     assert filas[0][3] == "A"  # el primero siempre es A (su acumulado previo es 0)
-
-
-def test_cohortes_con_rejilla_completa(modelo, conn_admin: psycopg.Connection) -> None:
-    filas = _consulta(conn_admin, "SELECT cohorte, meses_desde_primera, clientes_cohorte, "
-                                  "clientes_activos, pct_retencion FROM v_cohortes_clientes")
-    celdas = {(f[0], f[1]): f for f in filas}
-    # Cada cohorte llega hasta el último mes con compras (2026-02):
-    assert len(filas) == 14 + 13 + 2 + 1
-    assert sum(f[3] for f in filas if f[1] == 0) == 5
-    assert all(f[4] == 100 for f in filas if f[1] == 0)
-    enero, febrero = date(2025, 1, 1), date(2025, 2, 1)
-    assert celdas[(enero, 1)][2:] == (2, 1, Decimal("50.00"))
-    assert celdas[(enero, 13)][3] == 1
-    # Mes sin actividad: fila con 0, no fila ausente.
-    assert celdas[(febrero, 1)][3:] == (0, Decimal("0.00"))
-    assert celdas[(febrero, 2)][3] == 1
 
 
 def test_tendencia_interanual(modelo, conn_admin: psycopg.Connection) -> None:

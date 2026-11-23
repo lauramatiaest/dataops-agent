@@ -1,4 +1,7 @@
-"""Adaptador para Metabase OSS mediante su API REST.
+"""Integración con Metabase (la herramienta de dashboards) mediante su API REST.
+
+El agente trabaja con nombres neutrales (``Pregunta``, ``Ajustes``, ``Elemento``) y este
+módulo los traduce a la API de Metabase.
 
 Versión de referencia: Metabase v0.64.2.8 (la imagen fijada en docker-compose.yml).
 Endpoints comprobados en el código fuente y en la especificación OpenAPI de esa
@@ -13,13 +16,8 @@ versión (``docs/api.json`` del repositorio de Metabase); ver docs/arquitectura.
 * ``POST /api/database``                     → {name, engine, details{host, port, dbname,
   user, password}}
 * ``POST /api/database/:id/sync_schema``     → asíncrono, devuelve {"status": "ok"}
-* ``GET  /api/database/:id/metadata``        → tables[{id, name, schema, description,
-  fields[{id, name, description}]}]
-* ``PUT  /api/table/:id`` y ``PUT /api/field/:id`` → {"description": ...}
 * ``POST /api/card``                         → {name, display, visualization_settings,
   dataset_query}
-* ``GET  /api/card/:id``                     → incluye "display" (para elegir el tamaño)
-* ``PUT  /api/card/:id``                     → campos opcionales (p. ej. dataset_query)
 * ``POST /api/dashboard``                    → {name, description?}
 * ``PUT  /api/dashboard/:id``                → {"dashcards": [...]} REEMPLAZA todas las tarjetas
   (desde 0.48; ``POST /api/dashboard/:id/cards`` se eliminó en 0.47) y admite
@@ -42,21 +40,199 @@ aceptando y normaliza internamente a MBQL 5.
 from __future__ import annotations
 
 import json
-import re
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from dataops_agent.bi.base import (
-    VISUALIZACIONES_KPI,
-    Ajustes,
-    BIAdapter,
-    Elemento,
-    ErrorBI,
-    Pregunta,
-    RefBI,
-)
 from dataops_agent.config import Config
+
+# Visualizaciones admitidas, con nombres neutrales; este módulo las traduce.
+VISUALIZACIONES = (
+    "tabla", "barras", "barras_horizontales", "lineas", "area", "tarta", "numero",
+    "tendencia",   # KPI con variación frente al periodo anterior (necesita columna de fecha)
+    "progreso",    # KPI frente a un objetivo (ajuste "objetivo")
+    "combinado",   # barras + líneas en el mismo gráfico
+    "dispersion", "embudo", "cascada",
+)
+# Visualizaciones de una sola cifra (KPI).
+VISUALIZACIONES_KPI = ("numero", "tendencia", "progreso")
+# Formatos de columna admitidos en ``Ajustes.formatos``.
+FORMATOS = ("moneda", "porcentaje", "entero", "decimal")
+# Tamaños de tarjeta de un dashboard, de menor a mayor.
+TAMANOS = ("kpi", "tercio", "medio", "ancho")
+
+_CLAVES_AJUSTES = ("eje_x", "desglose", "series", "titulo_x", "titulo_y", "apilado",
+                   "mostrar_valores", "formatos", "objetivo")
+
+
+class ErrorBI(RuntimeError):
+    """Fallo al hablar con la herramienta de BI."""
+
+
+def _texto_opcional(valor: Any, clave: str) -> str | None:
+    if valor is None:
+        return None
+    if not isinstance(valor, str) or not valor.strip():
+        raise ValueError(f"'{clave}' debe ser un texto no vacío.")
+    return valor.strip()
+
+
+@dataclass(frozen=True)
+class Ajustes:
+    """Presentación de una pregunta con nombres neutrales (se traducen a Metabase).
+
+    * ``eje_x``: columna de categorías o fechas; ``series``: columnas numéricas a pintar
+      (en un KPI, la primera es la cifra que se muestra).
+    * ``desglose``: segunda columna de categorías que parte cada valor del eje en una
+      serie por categoría (p. ej. importe por mes desglosado por canal); con ``apilado``
+      las series se apilan.
+    * ``titulo_x`` / ``titulo_y``: títulos de los ejes.
+    * ``apilado``: barras o áreas apiladas; ``mostrar_valores``: etiqueta cada punto.
+    * ``formatos``: ``{columna: moneda | porcentaje | entero | decimal}``. ``porcentaje``
+      añade " %" y espera valores 0-100, como los que calculan las vistas del proyecto.
+    * ``objetivo``: meta de un gráfico de ``progreso``.
+    """
+
+    eje_x: str | None = None
+    desglose: str | None = None
+    series: tuple[str, ...] = ()
+    titulo_x: str | None = None
+    titulo_y: str | None = None
+    apilado: bool = False
+    mostrar_valores: bool = False
+    formatos: tuple[tuple[str, str], ...] = ()
+    objetivo: float | None = None
+
+    @classmethod
+    def desde_dict(cls, datos: dict[str, Any] | None) -> Ajustes:
+        if not datos:
+            return cls()
+        if not isinstance(datos, dict):
+            raise ValueError("'ajustes' debe ser un objeto.")
+        if extra := sorted(set(datos) - set(_CLAVES_AJUSTES)):
+            raise ValueError(
+                f"Ajustes desconocidos: {', '.join(extra)}. "
+                f"Admitidos: {', '.join(_CLAVES_AJUSTES)}."
+            )
+        series = datos.get("series") or []
+        if isinstance(series, str):
+            series = [series]
+        if not isinstance(series, list) or not all(isinstance(c, str) and c for c in series):
+            raise ValueError("'series' debe ser una lista de nombres de columna.")
+        formatos = datos.get("formatos") or {}
+        if not isinstance(formatos, dict):
+            raise ValueError("'formatos' debe ser un objeto {columna: formato}.")
+        for columna, formato in formatos.items():
+            if formato not in FORMATOS:
+                raise ValueError(
+                    f"Formato no admitido para {columna}: {formato}. "
+                    f"Opciones: {', '.join(FORMATOS)}."
+                )
+        objetivo = datos.get("objetivo")
+        if objetivo is not None and (isinstance(objetivo, bool)
+                                     or not isinstance(objetivo, int | float)):
+            raise ValueError("'objetivo' debe ser un número.")
+        for clave in ("apilado", "mostrar_valores"):
+            if not isinstance(datos.get(clave, False), bool):
+                raise ValueError(f"'{clave}' debe ser true o false.")
+        if datos.get("desglose") is not None and datos.get("eje_x") is None:
+            raise ValueError("'desglose' necesita también 'eje_x'.")
+        return cls(
+            eje_x=_texto_opcional(datos.get("eje_x"), "eje_x"),
+            desglose=_texto_opcional(datos.get("desglose"), "desglose"),
+            series=tuple(series),
+            titulo_x=_texto_opcional(datos.get("titulo_x"), "titulo_x"),
+            titulo_y=_texto_opcional(datos.get("titulo_y"), "titulo_y"),
+            apilado=datos.get("apilado", False),
+            mostrar_valores=datos.get("mostrar_valores", False),
+            formatos=tuple(sorted(formatos.items())),
+            objetivo=None if objetivo is None else float(objetivo),
+        )
+
+
+@dataclass(frozen=True)
+class Pregunta:
+    """Una consulta guardada con su visualización (una *card* de Metabase)."""
+
+    nombre: str
+    sql: str
+    visualizacion: str = "tabla"
+    descripcion: str | None = None
+    ajustes: Ajustes = Ajustes()
+
+    def __post_init__(self) -> None:
+        if self.visualizacion not in VISUALIZACIONES:
+            raise ValueError(
+                f"Visualización no admitida: {self.visualizacion}. "
+                f"Opciones: {', '.join(VISUALIZACIONES)}."
+            )
+        if self.visualizacion == "progreso" and self.ajustes.objetivo is None:
+            raise ValueError("Una pregunta de 'progreso' necesita el ajuste 'objetivo'.")
+
+
+@dataclass(frozen=True)
+class Elemento:
+    """Un elemento de un dashboard: una pregunta, un título de sección o un texto.
+
+    ``tamano`` (kpi, tercio, medio o ancho) solo se aplica a preguntas; si falta, "medio".
+    """
+
+    pregunta_id: int | None = None
+    tamano: str | None = None
+    seccion: str | None = None
+    texto: str | None = None
+
+    def __post_init__(self) -> None:
+        if sum(x is not None for x in (self.pregunta_id, self.seccion, self.texto)) != 1:
+            raise ValueError(
+                "Cada elemento lleva exactamente uno de: pregunta_id, seccion o texto."
+            )
+        if self.tamano is not None and self.tamano not in TAMANOS:
+            raise ValueError(f"Tamaño no admitido: {self.tamano}. Opciones: {', '.join(TAMANOS)}.")
+        if self.tamano is not None and self.pregunta_id is None:
+            raise ValueError("'tamano' solo se aplica a preguntas.")
+
+    @classmethod
+    def desde_dict(cls, datos: dict[str, Any]) -> Elemento:
+        if not isinstance(datos, dict):
+            raise ValueError("Cada elemento del dashboard debe ser un objeto.")
+        if extra := sorted(set(datos) - {"pregunta_id", "tamano", "seccion", "texto"}):
+            raise ValueError(f"Claves desconocidas en un elemento: {', '.join(extra)}.")
+        pregunta_id = datos.get("pregunta_id")
+        if pregunta_id is not None and (isinstance(pregunta_id, bool)
+                                        or not isinstance(pregunta_id, int)):
+            raise ValueError("'pregunta_id' debe ser un entero.")
+        return cls(
+            pregunta_id=pregunta_id,
+            tamano=datos.get("tamano"),
+            seccion=_texto_opcional(datos.get("seccion"), "seccion"),
+            texto=_texto_opcional(datos.get("texto"), "texto"),
+        )
+
+
+def elementos_dashboard(
+    pregunta_ids: list[int] | None, elementos: list[dict[str, Any]] | None
+) -> list[Elemento]:
+    """Une las dos formas de indicar el contenido: lista simple de ids o elementos."""
+    if pregunta_ids and elementos:
+        raise ValueError("Indica 'pregunta_ids' o 'elementos', no los dos.")
+    if elementos:
+        return [Elemento.desde_dict(e) for e in elementos]
+    return [Elemento(pregunta_id=i) for i in pregunta_ids or []]
+
+
+@dataclass(frozen=True)
+class RefBI:
+    """Referencia a un objeto creado en la herramienta de BI."""
+
+    id: int
+    nombre: str
+    url: str
+
+    def como_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "nombre": self.nombre, "url": self.url}
+
 
 # Traducción de visualizaciones neutrales a los valores "display" de Metabase.
 _DISPLAY = {
@@ -74,7 +250,6 @@ _DISPLAY = {
     "embudo": "funnel",
     "cascada": "waterfall",
 }
-_NEUTRAL = {v: k for k, v in _DISPLAY.items()}
 _ANCHO_REJILLA = 24  # columnas de la rejilla de un dashboard de Metabase
 # (ancho, alto) en unidades de la rejilla para cada tamaño neutral.
 _TAMANOS = {"kpi": (6, 3), "tercio": (8, 6), "medio": (12, 6), "ancho": (24, 7)}
@@ -84,13 +259,10 @@ _FORMATOS = {
     "entero": {"decimals": 0},
     "decimal": {"decimals": 2},
 }
-# Campos de una dashcard existente que hay que reenviar para conservarla tal cual.
-_CAMPOS_DASHCARD = ("id", "card_id", "row", "col", "size_x", "size_y",
-                    "visualization_settings", "parameter_mappings", "dashboard_tab_id")
 
 
-class MetabaseAdapter(BIAdapter):
-    nombre = "metabase"
+class MetabaseAdapter:
+    """Las operaciones de BI que usa el servidor MCP, sobre la API REST de Metabase."""
 
     def __init__(self, cfg: Config, cliente: httpx.Client | None = None) -> None:
         self.cfg = cfg
@@ -182,7 +354,7 @@ class MetabaseAdapter(BIAdapter):
         """GET autenticado a cualquier ruta de la API (lo usa el comparador de la evaluación)."""
         return self._peticion("GET", ruta)
 
-    # ---------------------------------------------------------- BIAdapter
+    # ------------------------------------------------ preguntas y dashboards
     def estado(self) -> dict[str, Any]:
         try:
             salud = self._http.get("/api/health")
@@ -213,29 +385,6 @@ class MetabaseAdapter(BIAdapter):
         datos = self._peticion("POST", "/api/card", json=cuerpo)
         return RefBI(int(datos["id"]), pregunta.nombre, f"{self.publica}/question/{datos['id']}")
 
-    def actualizar_pregunta(
-        self, pregunta_id: int, sql: str | None = None, nombre: str | None = None,
-        visualizacion: str | None = None, ajustes: Ajustes | None = None,
-    ) -> RefBI:
-        cuerpo: dict[str, Any] = {}
-        if sql is not None:
-            cuerpo["dataset_query"] = self._consulta_nativa(sql)
-        if nombre is not None:
-            cuerpo["name"] = nombre
-        if visualizacion is not None or ajustes is not None:
-            if visualizacion is None:
-                actual = self._peticion("GET", f"/api/card/{pregunta_id}")
-                visualizacion = _NEUTRAL.get(actual.get("display", ""), "tabla")
-            valida = Pregunta("x", "x", visualizacion, ajustes=ajustes or Ajustes())
-            cuerpo["display"] = _DISPLAY[valida.visualizacion]
-            if ajustes is not None:
-                cuerpo["visualization_settings"] = ajustes_visualizacion(visualizacion, ajustes)
-        if not cuerpo:
-            raise ValueError("No hay nada que actualizar.")
-        datos = self._peticion("PUT", f"/api/card/{pregunta_id}", json=cuerpo)
-        return RefBI(pregunta_id, datos.get("name", nombre or ""),
-                     f"{self.publica}/question/{pregunta_id}")
-
     def crear_dashboard(
         self, nombre: str, elementos: list[Elemento], descripcion: str | None = None
     ) -> RefBI:
@@ -243,125 +392,12 @@ class MetabaseAdapter(BIAdapter):
         if descripcion:
             cuerpo["description"] = descripcion
         datos = self._peticion("POST", "/api/dashboard", json=cuerpo)
-        ref = RefBI(int(datos["id"]), nombre, f"{self.publica}/dashboard/{datos['id']}")
+        dashboard_id = int(datos["id"])
         if elementos:
-            self.anadir_a_dashboard(ref.id, elementos)
-        return ref
-
-    def anadir_a_dashboard(self, dashboard_id: int, elementos: list[Elemento]) -> RefBI:
-        """Añade elementos debajo de los existentes, conservándolos.
-
-        ``PUT /api/dashboard/:id`` reemplaza el conjunto completo de tarjetas, así que
-        se envían las actuales (con su id y sus ajustes, que es donde va el texto de las
-        tarjetas de título) más las nuevas (con id negativo).
-        """
-        if not elementos:
-            raise ValueError("No hay nada que añadir al dashboard.")
-        actual = self._peticion("GET", f"/api/dashboard/{dashboard_id}")
-        existentes = [
-            {k: t[k] for k in _CAMPOS_DASHCARD if t.get(k) is not None}
-            | {"card_id": t.get("card_id")}
-            for t in actual.get("dashcards", [])
-        ]
-        fila_libre = max((t["row"] + t["size_y"] for t in existentes), default=0)
-        tamanos = {e.pregunta_id: self._tamano_por_defecto(e.pregunta_id)
-                   for e in elementos if e.pregunta_id is not None and e.tamano is None}
-        nuevas = colocar(elementos, tamanos, fila_inicial=fila_libre)
-        self._peticion("PUT", f"/api/dashboard/{dashboard_id}",
-                       json={"dashcards": existentes + nuevas, "width": "full"})
-        return RefBI(
-            dashboard_id, actual.get("name", ""), f"{self.publica}/dashboard/{dashboard_id}"
-        )
-
-    def _tamano_por_defecto(self, pregunta_id: int) -> str:
-        """KPI pequeños, tablas a todo el ancho y el resto a media anchura."""
-        display = self._peticion("GET", f"/api/card/{pregunta_id}").get("display")
-        visualizacion = _NEUTRAL.get(display or "", "tabla")
-        if visualizacion in VISUALIZACIONES_KPI:
-            return "kpi"
-        return "ancho" if visualizacion == "tabla" else "medio"
-
-    def publicar_descripciones(
-        self, esquema: str, descripciones: dict[str, dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Metabase solo copia el comentario de PostgreSQL la primera vez (cuando su
-        descripción está vacía), así que una descripción corregida en el modelo no le
-        llega al sincronizar (I-30). Aquí se escribe por la API, solo donde difiere."""
-        metadatos = self._peticion("GET", f"/api/database/{self.id_base_datos()}/metadata")
-        tablas = {t.get("name"): t for t in metadatos.get("tables", [])
-                  if t.get("schema") == esquema}
-        actualizadas: list[str] = []
-        sin_cambios = 0
-        no_encontradas: list[str] = []
-        for objeto, datos in sorted(descripciones.items()):
-            tabla = tablas.get(objeto)
-            if tabla is None:
-                no_encontradas.append(objeto)
-                continue
-            texto = datos.get("descripcion")
-            if texto and tabla.get("description") != texto:
-                self._peticion("PUT", f"/api/table/{tabla['id']}", json={"description": texto})
-                actualizadas.append(objeto)
-            elif texto:
-                sin_cambios += 1
-            campos = {c.get("name"): c for c in tabla.get("fields", [])}
-            for columna, texto_col in sorted((datos.get("columnas") or {}).items()):
-                campo = campos.get(columna)
-                if campo is None:
-                    no_encontradas.append(f"{objeto}.{columna}")
-                elif campo.get("description") != texto_col:
-                    self._peticion("PUT", f"/api/field/{campo['id']}",
-                                   json={"description": texto_col})
-                    actualizadas.append(f"{objeto}.{columna}")
-                else:
-                    sin_cambios += 1
-        resultado: dict[str, Any] = {"actualizadas": actualizadas, "sin_cambios": sin_cambios}
-        if no_encontradas:
-            resultado["no_encontradas"] = no_encontradas
-            resultado["aviso"] = ("Metabase aún no conoce estos objetos (la sincronización "
-                                  "tarda unos segundos): vuelve a llamar a sincronizar_bi.")
-        return resultado
-
-    # ---------------------------------------------------- configuración inicial
-    def uso_de_objetos(self, nombres: list[str]) -> dict[str, dict[str, list[dict[str, Any]]]]:
-        """Preguntas nativas de la conexión del proyecto cuyo SQL cita cada objeto, y los
-        dashboards que contienen esas preguntas."""
-        bd = self.id_base_datos()
-        # El nombre suelto o calificado (esquema.nombre), sin confundir v_x con v_x_2.
-        patrones = {
-            n: re.compile(rf"(?<![\w.]){re.escape(n)}\b|\.{re.escape(n)}\b") for n in nombres
-        }
-        uso: dict[str, dict[str, list[dict[str, Any]]]] = {}
-        pregunta_de: dict[int, list[str]] = {}
-        for card in self._peticion("GET", "/api/card") or []:
-            consulta = card.get("dataset_query") or {}
-            if consulta.get("database") != bd or card.get("archived"):
-                continue
-            # Formato antiguo ({"native": {"query": ...}}) o nuevo de Metabase
-            # ({"stages": [{"native": ...}]}): se buscan todos sus textos.
-            texto = "\n".join(_textos(consulta))
-            for nombre, patron in patrones.items():
-                if patron.search(texto):
-                    ref = {"id": card["id"], "nombre": card.get("name", ""),
-                           "url": f"{self.publica}/question/{card['id']}"}
-                    uso.setdefault(nombre, {"preguntas": [], "dashboards": []})
-                    uso[nombre]["preguntas"].append(ref)
-                    pregunta_de.setdefault(int(card["id"]), []).append(nombre)
-        if pregunta_de:
-            for resumen in self._peticion("GET", "/api/dashboard") or []:
-                if resumen.get("archived"):
-                    continue
-                tablero = self._peticion("GET", f"/api/dashboard/{resumen['id']}")
-                ids = {t.get("card_id") for t in tablero.get("dashcards", [])}
-                for card_id in ids & set(pregunta_de):
-                    for nombre in pregunta_de[card_id]:
-                        dashboards = uso[nombre]["dashboards"]
-                        if all(d["id"] != tablero["id"] for d in dashboards):
-                            dashboards.append({
-                                "id": tablero["id"], "nombre": tablero.get("name", ""),
-                                "url": f"{self.publica}/dashboard/{tablero['id']}",
-                            })
-        return uso
+            # PUT /api/dashboard/:id fija todas las tarjetas (id negativo = nueva) y el ancho.
+            self._peticion("PUT", f"/api/dashboard/{dashboard_id}",
+                           json={"dashcards": colocar(elementos), "width": "full"})
+        return RefBI(dashboard_id, nombre, f"{self.publica}/dashboard/{dashboard_id}")
 
     def configurar_regional(self, idioma: str = "es", separadores: str = ",.") -> None:
         """Idioma del sitio y separadores numéricos (",." = coma decimal y punto de miles).
@@ -404,17 +440,6 @@ class MetabaseAdapter(BIAdapter):
     # ------------------------------------------------------------- internos
     def _consulta_nativa(self, sql: str) -> dict[str, Any]:
         return {"type": "native", "native": {"query": sql}, "database": self.id_base_datos()}
-
-
-def _textos(valor: Any) -> list[str]:
-    """Todas las cadenas de una estructura JSON (dict/list anidados)."""
-    if isinstance(valor, str):
-        return [valor]
-    if isinstance(valor, dict):
-        return [t for v in valor.values() for t in _textos(v)]
-    if isinstance(valor, list):
-        return [t for v in valor for t in _textos(v)]
-    return []
 
 
 def ajustes_visualizacion(visualizacion: str, ajustes: Ajustes) -> dict[str, Any]:
@@ -468,18 +493,15 @@ def _tarjeta_virtual(tipo: str, texto: str) -> dict[str, Any]:
     }
 
 
-def colocar(
-    elementos: list[Elemento], tamanos: dict[int, str] | None = None, fila_inicial: int = 0
-) -> list[dict[str, Any]]:
+def colocar(elementos: list[Elemento]) -> list[dict[str, Any]]:
     """Coloca los elementos de izquierda a derecha en la rejilla de 24 columnas.
 
     Las preguntas se empaquetan en filas según su tamaño (4 KPI, 3 tercios, 2 medios
     o 1 ancho por fila). Una sección o un texto cierra la fila en curso y ocupa todo
     el ancho, de modo que agrupa debajo las preguntas que le siguen.
     """
-    tamanos = tamanos or {}
     tarjetas: list[dict[str, Any]] = []
-    fila, col, alto_fila = fila_inicial, 0, 0
+    fila, col, alto_fila = 0, 0, 0
 
     def nueva_fila() -> None:
         nonlocal fila, col, alto_fila
@@ -502,7 +524,7 @@ def colocar(
                              "visualization_settings": ajustes})
             fila += alto
             continue
-        ancho, alto = _TAMANOS[elemento.tamano or tamanos[elemento.pregunta_id]]
+        ancho, alto = _TAMANOS[elemento.tamano or "medio"]
         if col + ancho > _ANCHO_REJILLA:
             nueva_fila()
         tarjetas.append({"id": nuevo_id, "card_id": elemento.pregunta_id, "row": fila,

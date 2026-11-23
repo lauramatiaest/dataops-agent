@@ -1,4 +1,4 @@
-"""Lectura segura de ficheros de entrada (CSV, JSON y JSON Lines).
+"""Lectura segura de ficheros de entrada (CSV y JSON).
 
 Seguridad: el servidor solo lee ficheros dentro de ``DATAOPS_DIR_DATOS``. Se resuelve
 la ruta real (siguiendo enlaces simbólicos) y se rechaza cualquier ruta que salga del
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-EXTENSIONES = {".csv": "csv", ".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl"}
+EXTENSIONES = {".csv": "csv", ".json": "json"}
 TAMANO_MAXIMO = 200 * 1024 * 1024  # 200 MB: suficiente para el ámbito del prototipo
 
 
@@ -34,7 +34,7 @@ class FicheroTabular:
     """Un fichero de entrada ya validado."""
 
     ruta: Path
-    formato: str  # "csv" | "json" | "jsonl"
+    formato: str  # "csv" | "json"
     columnas: tuple[str, ...]  # nombres originales, en orden
 
     def filas(self) -> Iterator[dict[str, str | None]]:
@@ -42,7 +42,7 @@ class FicheroTabular:
         if self.formato == "csv":
             yield from _filas_csv(self.ruta)
         else:
-            for objeto in _objetos_json(self.ruta, self.formato):
+            for objeto in _objetos_json(self.ruta):
                 yield {c: _a_texto(objeto.get(c)) for c in self.columnas}
 
 
@@ -88,7 +88,7 @@ def abrir(dir_datos: Path, ruta: str) -> FicheroTabular:
         columnas = tuple(c.strip() for c in cabecera)
     else:
         columnas_vistas: dict[str, None] = {}
-        for objeto in _objetos_json(real, formato):
+        for objeto in _objetos_json(real):
             columnas_vistas.update(dict.fromkeys(objeto))
         columnas = tuple(columnas_vistas)
     if len(set(columnas)) != len(columnas):
@@ -140,13 +140,8 @@ def _filas_csv(ruta: Path) -> Iterator[dict[str, str | None]]:
             }
 
 
-def _objetos_json(ruta: Path, formato: str) -> Iterator[dict[str, Any]]:
+def _objetos_json(ruta: Path) -> Iterator[dict[str, Any]]:
     with ruta.open(encoding="utf-8-sig") as f:
-        if formato == "jsonl":
-            for numero, linea in enumerate(f, start=1):
-                if linea.strip():
-                    yield _exigir_objeto(json.loads(linea), numero)
-            return
         datos = json.load(f)
     if isinstance(datos, dict):
         # Forma habitual de las API: {"datos": [...]} o {"items": [...]}: se toma la

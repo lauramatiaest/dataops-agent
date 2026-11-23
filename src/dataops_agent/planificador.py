@@ -23,12 +23,6 @@ from pydantic import BaseModel, Field
 from dataops_agent import catalogo
 from dataops_agent.conexion import GestorConexiones
 from dataops_agent.config import Config, validar_identificador
-from dataops_agent.documentacion import (
-    comentario_objeto,
-    comentarios_columnas,
-    normalizar_texto,
-    sql_legible,
-)
 from dataops_agent.ficheros import FicheroTabular, abrir, huella, nombre_sql
 from dataops_agent.perfilado import perfilar
 from dataops_agent.planes import AlmacenPlanes, Paso, Plan, TipoPaso, TipoPlan
@@ -534,85 +528,6 @@ class Planificador:
                 destructivo=True,
                 bloqueos=bloqueos,
                 advertencias=["Operación irreversible: requiere aprobación explícita."],
-            )
-        )
-
-    # ========================================================= documentación
-    def documentacion(self, descripciones: dict[str, Any]) -> Plan:
-        """Plan para guardar descripciones como comentarios del modelo (``COMMENT ON``).
-
-        ``descripciones``: {objeto: {"descripcion": "...", "columnas": {col: "..."}}}.
-        No es destructivo: solo cambia metadatos. Si ya había un comentario distinto,
-        el plan lo enseña (antes → después) como advertencia.
-        """
-        if not descripciones:
-            raise ErrorPlanificacion("No hay ninguna descripción que guardar.")
-        pasos: list[Paso] = []
-        advertencias: list[str] = []
-        reemplazos: list[dict[str, str]] = []
-        with self.gestor.lectura() as conn:
-            existentes = catalogo.objetos(conn, self.esquema)
-            for objeto, contenido in descripciones.items():
-                validar_identificador(objeto, "objeto")
-                tipo = existentes.get(objeto)
-                if tipo is None:
-                    raise ErrorPlanificacion(f"No existe {self.esquema}.{objeto}.")
-                if not isinstance(contenido, dict):
-                    raise ErrorPlanificacion(
-                        f"Para {objeto} se espera {{'descripcion': ..., 'columnas': {{...}}}}."
-                    )
-                columnas_reales = {c.nombre for c in catalogo.columnas(conn, self.esquema, objeto)}
-                previas = comentarios_columnas(conn, self.esquema, objeto)
-                entradas: list[tuple[str | None, str]] = []
-                if contenido.get("descripcion"):
-                    entradas.append((None, contenido["descripcion"]))
-                for columna, texto in (contenido.get("columnas") or {}).items():
-                    if columna not in columnas_reales:
-                        raise ErrorPlanificacion(
-                            f"{objeto} no tiene la columna {columna}. "
-                            f"Columnas: {sorted(columnas_reales)}."
-                        )
-                    entradas.append((columna, texto))
-                for columna, texto in entradas:
-                    donde = f"{objeto}.{columna}" if columna else objeto
-                    limpio = normalizar_texto(texto, donde)
-                    anterior = (
-                        previas.get(columna)
-                        if columna
-                        else comentario_objeto(conn, self.esquema, objeto)
-                    )
-                    if anterior == limpio:
-                        continue
-                    if anterior:
-                        reemplazos.append({"objeto": donde, "antes": anterior, "despues": limpio})
-                    pasos.append(
-                        Paso(
-                            TipoPaso.COMENTARIO,
-                            f"Describir {donde}",
-                            sql_legible(self.esquema, objeto, columna, limpio, tipo),
-                            tabla=objeto,
-                            columna=columna,
-                            texto=limpio,
-                        )
-                    )
-        if not pasos:
-            raise ErrorPlanificacion("Todas las descripciones ya estaban guardadas tal cual.")
-        if reemplazos:
-            advertencias.append(
-                f"Se sustituyen {len(reemplazos)} descripciones existentes "
-                "(ver impacto.reemplaza)."
-            )
-        return self._guardar(
-            Plan(
-                tipo=TipoPlan.DOCUMENTACION,
-                resumen=f"Documentar {len(pasos)} elementos del modelo en {self.esquema}",
-                pasos=pasos,
-                impacto={
-                    "objetos": sorted({p.tabla for p in pasos if p.tabla}),
-                    "descripciones": len(pasos),
-                    "reemplaza": reemplazos,
-                },
-                advertencias=advertencias,
             )
         )
 

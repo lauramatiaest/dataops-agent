@@ -10,7 +10,7 @@ description: Crea preguntas y dashboards en la herramienta de BI (Metabase) sobr
 1. `estado_bi`. Si no está disponible o no tiene `base_datos_id`, para y explica cómo
    arrancarlo (`docker compose up -d` y `python scripts/configurar_metabase.py`).
 2. Asegúrate de que existen vistas `v_*` para cada métrica (skill `transformacion`; para
-   RFM, ABC o cohortes, skill `analitica-avanzada`). Las preguntas leen de vistas para
+   segmentación de clientes, ABC o tendencias, skill `analitica-avanzada`). Las preguntas leen de vistas para
    que un cambio de lógica no obligue a rehacerlas.
 3. Si acabas de crear vistas, `sincronizar_bi`.
 4. Antes de diseñar, consulta con `consultar_solo_lectura` las columnas y el rango de
@@ -33,7 +33,7 @@ description: Crea preguntas y dashboards en la herramienta de BI (Metabase) sobr
 | Relación entre dos medidas por elemento | `dispersion` | `eje_x`, `series` |
 | Detalle o ranking con varias columnas | `tabla` | `formatos` |
 
-Ajustes (`ajustes` en `crear_pregunta` y `actualizar_pregunta`): `eje_x`, `desglose`, `series`,
+Ajustes (`ajustes` en `crear_pregunta`): `eje_x`, `desglose`, `series`,
 `titulo_x`, `titulo_y`, `apilado`, `mostrar_valores`, `formatos` y `objetivo`.
 - `formatos`: `{columna: moneda | porcentaje | entero | decimal}`. Usa `moneda` (euros)
   **solo si la moneda está confirmada** en la documentación o por la persona; si no,
@@ -72,8 +72,8 @@ crear_dashboard(nombre="Resumen de ventas", descripcion="...", elementos=[
 ])
 ```
 
-`pregunta_ids=[...]` sigue valiendo para algo rápido: KPI pequeños, tablas a todo el
-ancho y el resto a media anchura, sin secciones.
+Un elemento sin `tamano` va a media anchura. `pregunta_ids=[...]` sirve para algo
+rápido: todas las preguntas a media anchura, sin secciones.
 
 ## Plantillas
 
@@ -92,14 +92,12 @@ existe, una vista por canal):
   `desglose: canal`, `apilado: true`, `ancho`). Sin `desglose`, las filas de cada canal
   se pintan como una sola serie y el canal no se ve.
 
-**Clientes** (requiere `v_rfm_clientes` y `v_cohortes_clientes`, skill
-`analitica-avanzada`):
-- KPI: clientes con compras (`numero`), clientes del segmento "Campeones"
-  (`numero`) y porcentaje de clientes que repiten (`numero`, `porcentaje`).
-- Sección "Segmentos RFM": clientes por segmento (`barras_horizontales`, `medio`) e
-  importe por segmento (`barras_horizontales`, `medio`).
-- Sección "Retención": retención por cohorte y meses desde la primera compra
-  (`tabla`, `ancho`) y una curva media (`lineas`, `medio`).
+**Clientes** (requiere `v_rfm_clientes`, skill `analitica-avanzada`):
+- KPI: clientes con compras (`numero`), clientes "Fieles" (`numero`), clientes "En
+  riesgo" (`numero`) y porcentaje de clientes que repiten, con más de un pedido
+  (`numero`, `porcentaje`).
+- Sección "Segmentos": clientes por segmento (`barras_horizontales`, `medio`) e
+  importe por segmento (`tarta`, `medio`).
 - Sección "Mejores clientes": top 20 por importe con su segmento (`tabla`, `ancho`).
 
 **Producto** (requiere `v_abc_productos`):
@@ -118,10 +116,10 @@ sacada de `consultar_solo_lectura`, no del gráfico.
 
 - Cambio de lógica de negocio → modifica la **vista** (skill `transformacion`); el
   dashboard se actualiza solo.
-- Cambio de presentación → `actualizar_pregunta` (visualización o `ajustes`; los
-  ajustes nuevos sustituyen a los anteriores, así que envíalos completos).
-- Nuevo contenido → `crear_pregunta` + `anadir_a_dashboard(dashboard_id,
-  elementos=[...])`; se coloca debajo y conserva lo que había.
+- Cambio de presentación o contenido nuevo → crea las preguntas que cambian y un
+  dashboard nuevo con todos los elementos (las preguntas que no cambian se reutilizan
+  por su id). Dile a la persona que el dashboard anterior sigue en Metabase y puede
+  archivarlo desde allí.
 
 ## Límites
 

@@ -50,6 +50,5 @@ description: Diagnostica y repara entregas de datos defectuosas (filas duplicada
 
 - Solo hay tres transformaciones (renombrar, dividir por 10/100/1000 y quitar
   duplicados exactos); no hay expresiones libres a propósito.
-- Para saber de qué fichero sale una tabla y qué vistas y dashboards dependen de ella
-  (por ejemplo, antes de recargar una entrega), usa `describir_modelo` (skill
-  `documentacion`).
+- No hay una herramienta de linaje: para saber de qué fichero se cargó una tabla,
+  consulta `ver_auditoria`.

@@ -1,4 +1,4 @@
-"""Tests del MetabaseAdapter con un Metabase simulado (httpx.MockTransport).
+"""Tests de la integración con Metabase, con un Metabase simulado (httpx.MockTransport).
 
 El simulador reproduce lo verificado en la API de Metabase v0.64.2.8, incluido que
 los esquemas de entrada son "cerrados" (rechazan claves desconocidas) y que
@@ -14,10 +14,16 @@ from typing import Any
 import httpx
 import pytest
 
-from dataops_agent.bi import Ajustes, Elemento, ErrorBI, MetabaseAdapter, Pregunta
-from dataops_agent.bi.base import elementos_dashboard
-from dataops_agent.bi.metabase import colocar
 from dataops_agent.config import Config
+from dataops_agent.metabase import (
+    Ajustes,
+    Elemento,
+    ErrorBI,
+    MetabaseAdapter,
+    Pregunta,
+    colocar,
+    elementos_dashboard,
+)
 
 CLAVES_CARD = {"name", "display", "visualization_settings", "dataset_query", "description",
                "collection_id", "type", "parameters", "dashboard_id", "cache_ttl"}
@@ -35,14 +41,6 @@ class MetabaseSimulado:
         self.bases: list[dict[str, Any]] = [{"id": 2, "name": "DataOps (solo lectura)"}]
         self.cards: dict[int, dict[str, Any]] = {}
         self.dashboards: dict[int, dict[str, Any]] = {}
-        # Metadatos tal como los devuelve GET /api/database/:id/metadata.
-        self.tablas: list[dict[str, Any]] = [
-            {"id": 7, "name": "clientes", "schema": "proyecto_test",
-             "description": "Altas entre 2024-01-01 y 2026-06-30",  # la primera importada
-             "fields": [{"id": 70, "name": "cliente_id", "description": None},
-                        {"id": 71, "name": "segmento", "description": "Tipo de cliente."}]},
-            {"id": 8, "name": "clientes", "schema": "public", "description": None, "fields": []},
-        ]
 
     def __call__(self, peticion: httpx.Request) -> httpx.Response:
         self.peticiones.append(peticion)
@@ -74,22 +72,8 @@ class MetabaseSimulado:
             nueva = {"id": 10 + len(self.bases), "name": cuerpo["name"]}
             self.bases.append(nueva)
             return httpx.Response(200, json=nueva)
-        if ruta.endswith("/metadata") and metodo == "GET":
-            return httpx.Response(200, json={"id": 2, "tables": self.tablas})
-        if (ruta.startswith(("/api/table/", "/api/field/"))) and metodo == "PUT":
-            assert set(cuerpo) == {"description"}
-            objeto_id = int(ruta.rsplit("/", 1)[1])
-            for tabla in self.tablas:
-                for objeto in [tabla, *tabla["fields"]]:
-                    es_tabla = objeto is tabla
-                    if objeto["id"] == objeto_id and es_tabla == ruta.startswith("/api/table/"):
-                        objeto["description"] = cuerpo["description"]
-                        return httpx.Response(200, json=objeto)
-            return httpx.Response(404, text="no existe")
         if ruta.endswith("/sync_schema"):
             return httpx.Response(200, json={"status": "ok"})
-        if ruta == "/api/card" and metodo == "GET":
-            return httpx.Response(200, json=[{"id": i, **c} for i, c in self.cards.items()])
         if ruta == "/api/dashboard" and metodo == "GET":
             return httpx.Response(200, json=[
                 {"id": d["id"], "name": d.get("name")} for d in self.dashboards.values()
@@ -100,21 +84,12 @@ class MetabaseSimulado:
             card_id = 100 + len(self.cards)
             self.cards[card_id] = cuerpo
             return httpx.Response(200, json={"id": card_id, **cuerpo})
-        if ruta.startswith("/api/card/") and metodo == "GET":
-            card_id = int(ruta.rsplit("/", 1)[1])
-            return httpx.Response(200, json={"id": card_id, **self.cards[card_id]})
-        if ruta.startswith("/api/card/") and metodo == "PUT":
-            card_id = int(ruta.rsplit("/", 1)[1])
-            self.cards[card_id].update(cuerpo)
-            return httpx.Response(200, json={"id": card_id, **self.cards[card_id]})
         if ruta == "/api/dashboard" and metodo == "POST":
             dash_id = 1 + len(self.dashboards)
             self.dashboards[dash_id] = {"id": dash_id, "dashcards": [], **cuerpo}
             return httpx.Response(200, json=self.dashboards[dash_id])
         if ruta.startswith("/api/dashboard/"):
             dash_id = int(ruta.rsplit("/", 1)[1])
-            if metodo == "GET":
-                return httpx.Response(200, json=self.dashboards[dash_id])
             assert cuerpo.get("width", "full") in ("fixed", "full")
             for t in cuerpo["dashcards"]:
                 if extra := set(t) - CLAVES_DASHCARD:
@@ -124,7 +99,7 @@ class MetabaseSimulado:
                 if t["card_id"] is None:  # tarjeta virtual: título o texto
                     virtual = t["visualization_settings"]["virtual_card"]
                     assert virtual["display"] in ("heading", "text") and t["visualization_settings"]["text"]
-            # Reemplaza el conjunto completo; asigna ids positivos a las nuevas.
+            # Fija el conjunto completo de tarjetas; asigna ids positivos a las nuevas.
             siguiente = 1000 + sum(len(d["dashcards"]) for d in self.dashboards.values())
             tarjetas = []
             for i, t in enumerate(cuerpo["dashcards"]):
@@ -179,29 +154,14 @@ def test_reintenta_si_la_sesion_caduca(cfg_mb: Config, simulado: MetabaseSimulad
     assert simulado.sesiones_emitidas == 2
 
 
-def test_dashboard_coloca_tarjetas_y_conserva_las_existentes(
-    cfg_mb: Config, simulado: MetabaseSimulado
-) -> None:
+def test_dashboard_coloca_tarjetas(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
     mb = _adaptador(cfg_mb, simulado)
     ids = [mb.crear_pregunta(Pregunta(f"p{i}", "SELECT 1", "barras")).id for i in range(3)]
-    ref = mb.crear_dashboard("Ventas", elementos_dashboard(ids[:2], None), "Resumen")
+    ref = mb.crear_dashboard("Ventas", elementos_dashboard(ids, None), "Resumen")
     assert ref.url == "http://mb.test/dashboard/1"
     tarjetas = simulado.dashboards[1]["dashcards"]
-    assert [(t["row"], t["col"]) for t in tarjetas] == [(0, 0), (0, 12)]
-    mb.anadir_a_dashboard(ref.id, elementos_dashboard([ids[2]], None))
-    tarjetas = simulado.dashboards[1]["dashcards"]
-    assert [t["card_id"] for t in tarjetas] == ids  # las dos anteriores siguen
-    assert tarjetas[2]["row"] == 6
-
-
-def test_actualizar_pregunta(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
-    mb = _adaptador(cfg_mb, simulado)
-    ref = mb.crear_pregunta(Pregunta("p", "SELECT 1"))
-    mb.actualizar_pregunta(ref.id, sql="SELECT 2", visualizacion="barras")
-    assert simulado.cards[ref.id]["dataset_query"]["native"]["query"] == "SELECT 2"
-    assert simulado.cards[ref.id]["display"] == "bar"
-    with pytest.raises(ValueError):
-        mb.actualizar_pregunta(ref.id)
+    assert [t["card_id"] for t in tarjetas] == ids
+    assert [(t["row"], t["col"]) for t in tarjetas] == [(0, 0), (0, 12), (6, 0)]
 
 
 def test_base_de_datos_no_registrada(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
@@ -234,40 +194,6 @@ def test_estado_y_errores_http(cfg_mb: Config, simulado: MetabaseSimulado) -> No
 def test_visualizacion_no_valida() -> None:
     with pytest.raises(ValueError, match="Visualización"):
         Pregunta("p", "SELECT 1", "radar")
-
-
-def test_uso_de_objetos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
-    """Documentación: qué preguntas y dashboards leen de cada vista."""
-    mb = _adaptador(cfg_mb, simulado)
-    ventas = mb.crear_pregunta(
-        Pregunta("Ventas", "SELECT mes, importe FROM v_ventas", "lineas")
-    )
-    mb.crear_pregunta(Pregunta("Otra", "SELECT * FROM v_ventas_2", "tabla"))
-    mb.crear_dashboard("Panel", [Elemento(pregunta_id=ventas.id)])
-    uso = mb.uso_de_objetos(["v_ventas", "v_ventas_2", "clientes"])
-    assert [p["nombre"] for p in uso["v_ventas"]["preguntas"]] == ["Ventas"]
-    assert [d["nombre"] for d in uso["v_ventas"]["dashboards"]] == ["Panel"]
-    assert [p["nombre"] for p in uso["v_ventas_2"]["preguntas"]] == ["Otra"]
-    assert uso["v_ventas_2"]["dashboards"] == []
-    assert "clientes" not in uso
-
-
-def test_uso_de_objetos_formato_nuevo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
-    """Metabase reciente devuelve las preguntas con la consulta dentro de ``stages``."""
-    mb = _adaptador(cfg_mb, simulado)
-    bd = mb.id_base_datos()
-    simulado.cards[500] = {
-        "name": "Ventas (MBQL 5)",
-        "dataset_query": {
-            "lib/type": "mbql/query",
-            "database": bd,
-            "stages": [{"lib/type": "mbql.stage/native",
-                        "native": "SELECT *\nFROM\nv_ventas_mensuales"}],
-        },
-    }
-    uso = mb.uso_de_objetos(["v_ventas_mensuales", "v_ventas"])
-    assert [p["nombre"] for p in uso["v_ventas_mensuales"]["preguntas"]] == ["Ventas (MBQL 5)"]
-    assert "v_ventas" not in uso
 
 
 # ------------------------------------------------------------ bloque B: dashboards completos
@@ -359,16 +285,6 @@ def test_ajustes_no_validos(datos: dict[str, Any]) -> None:
         Ajustes.desde_dict(datos)
 
 
-def test_actualizar_solo_ajustes_conserva_la_visualizacion(
-    cfg_mb: Config, simulado: MetabaseSimulado
-) -> None:
-    mb = _adaptador(cfg_mb, simulado)
-    ref = mb.crear_pregunta(Pregunta("p", "SELECT 1", "tarta"))
-    mb.actualizar_pregunta(ref.id, ajustes=Ajustes.desde_dict({"eje_x": "categoria"}))
-    assert simulado.cards[ref.id]["display"] == "pie"
-    assert simulado.cards[ref.id]["visualization_settings"] == {"pie.dimension": "categoria"}
-
-
 def test_colocar_por_filas_con_secciones() -> None:
     elementos = [Elemento(pregunta_id=i, tamano="kpi") for i in (1, 2, 3, 4, 5)] + [
         Elemento(seccion="Evolución"),
@@ -394,30 +310,20 @@ def test_colocar_por_filas_con_secciones() -> None:
     assert len({x["id"] for x in t}) == len(t) and all(x["id"] < 0 for x in t)
 
 
-def test_dashboard_tamano_automatico_y_ancho_completo(
+def test_dashboard_con_secciones_y_ancho_completo(
     cfg_mb: Config, simulado: MetabaseSimulado
 ) -> None:
     mb = _adaptador(cfg_mb, simulado)
     kpi = mb.crear_pregunta(Pregunta("Ventas", "SELECT 1", "numero")).id
     linea = mb.crear_pregunta(Pregunta("Evolución", "SELECT 1", "lineas")).id
-    tabla = mb.crear_pregunta(Pregunta("Detalle", "SELECT 1", "tabla")).id
-    mb.crear_dashboard("Panel", elementos_dashboard([kpi, linea, tabla], None))
+    mb.crear_dashboard("Panel", [Elemento(texto="Ventas sin cancelados"),
+                                 Elemento(pregunta_id=kpi, tamano="kpi"),
+                                 Elemento(seccion="Evolución"), Elemento(pregunta_id=linea)])
     dash = simulado.dashboards[1]
     assert dash["width"] == "full"
-    assert [(t["size_x"], t["size_y"]) for t in dash["dashcards"]] == [(6, 3), (12, 6), (24, 7)]
-
-
-def test_anadir_conserva_secciones_y_textos(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
-    """Al añadir, se reenvían los ajustes de las tarjetas existentes (ahí va el texto)."""
-    mb = _adaptador(cfg_mb, simulado)
-    p = mb.crear_pregunta(Pregunta("p", "SELECT 1", "barras")).id
-    ref = mb.crear_dashboard("Panel", [Elemento(seccion="Ventas"), Elemento(pregunta_id=p)])
-    mb.anadir_a_dashboard(ref.id, [Elemento(texto="Fuente: v_ventas")])
-    tarjetas = simulado.dashboards[1]["dashcards"]
-    assert [t["visualization_settings"]["text"] for t in tarjetas if t["card_id"] is None] == [
-        "Ventas", "Fuente: v_ventas"
+    assert [(t["card_id"], t["row"], t["size_x"], t["size_y"]) for t in dash["dashcards"]] == [
+        (None, 0, 24, 1), (kpi, 1, 6, 3), (None, 4, 24, 1), (linea, 5, 12, 6)
     ]
-    assert tarjetas[-1]["row"] == 7  # debajo de la sección (1) y la pregunta (6)
 
 
 @pytest.mark.parametrize("datos", [
@@ -439,24 +345,3 @@ def test_ids_o_elementos_pero_no_ambos() -> None:
     assert elementos_dashboard(None, None) == []
 
 
-def test_publicar_descripciones_del_modelo(cfg_mb: Config, simulado: MetabaseSimulado) -> None:
-    """M-19: Metabase conserva la primera descripción; se sustituye por la del modelo."""
-    mb = _adaptador(cfg_mb, simulado)
-    resultado = mb.publicar_descripciones("proyecto_test", {
-        "clientes": {"descripcion": "Una fila por cliente.",
-                     "columnas": {"cliente_id": "Identificador.", "segmento": "Tipo de cliente.",
-                                  "borrada": "No existe en Metabase."}},
-        "v_nueva": {"descripcion": "Vista recién creada.", "columnas": {}},
-    })
-    clientes = simulado.tablas[0]
-    assert clientes["description"] == "Una fila por cliente."
-    assert clientes["fields"][0]["description"] == "Identificador."
-    assert resultado["actualizadas"] == ["clientes", "clientes.cliente_id"]
-    assert resultado["sin_cambios"] == 1  # segmento ya coincidía: no se reescribe
-    assert resultado["no_encontradas"] == ["clientes.borrada", "v_nueva"]
-    assert simulado.tablas[1]["description"] is None  # otro esquema: intacto
-    # Idempotente: una segunda vez no envía nada.
-    puts = sum(1 for r in simulado.peticiones if r.method == "PUT")
-    mb.publicar_descripciones("proyecto_test", {"clientes": {"descripcion": "Una fila por cliente.",
-                                                             "columnas": {}}})
-    assert sum(1 for r in simulado.peticiones if r.method == "PUT") == puts
