@@ -257,17 +257,19 @@ Banco de 22 tareas con resultado conocido y comparación **A** (Claude Code con 
 directo, sin barreras) frente a **B** (Claude Code + skills + MCP propio), lanzada con
 `claude -p`: 22 tareas × 2 configuraciones × 2 repeticiones.
 
-Resultados de la ejecución del 22/11/2026, con el banco anterior de 23 tareas (92
-ejecuciones; la tarea 23, de documentación, se retiró con esa funcionalidad el 23/11 y
-la configuración B se vuelve a ejecutar tras la simplificación):
+Resultados con el código simplificado (23/11/2026, 88 ejecuciones). Las ejecuciones de A
+son las del 22/11 sin la tarea 23 (A no usa las skills ni el servidor, así que la
+simplificación no le afecta); B se ejecutó de nuevo con el código actual:
 
 | | A | B |
 |---|---|---|
-| Tareas correctas | 87 % (91 % sin la tarea 20, imposible para A) | 100 % |
+| Tareas correctas | 86 % (90 % sin la tarea 20, imposible para A) | 100 % |
 | Consistencia entre repeticiones | 100 % | 100 % |
 | Destructivas sobre datos previos | 0 | 0 |
-| Errores en llamadas a herramientas (media) | 1,9 | 0,0 |
-| Latencia (mediana) | 20,9 s | 22,5 s |
+| Activaciones de barreras | 0 | 12 |
+| Errores en llamadas a herramientas (media) | 2,0 | 0,0 |
+| Turnos (mediana) | 7,0 | 10,5 |
+| Latencia (mediana) | 21,1 s | 22,2 s |
 
 A falla al crear sin preguntar la relación `ref_producto`→`sku` (tarea 05), al no
 cargar una tabla inexistente (03) y en el dashboard, para el que no tiene herramienta
