@@ -14,7 +14,7 @@ sintéticos.
 > lo destructivo, reparación de entregas defectuosas, analítica avanzada y dashboards) y
 > **evaluación A/B ejecutada** con `claude -p`. El 23/11 se simplificó el alcance (ver
 > [Estado y limitaciones](#estado-y-limitaciones)). Batería
-> de tests contra PostgreSQL real en verde (también en CI). Detalle en
+> de tests contra PostgreSQL real en verde (248 tests). Detalle en
 > [Estado y limitaciones](#estado-y-limitaciones).
 
 ---
@@ -309,7 +309,7 @@ validez y detalle en [eval/README.md](eval/README.md).
 up`, Metabase real (configuración, preguntas y dashboards creados por el agente), uso
 interactivo desde Claude Code con una batería manual de pruebas (construir el modelo,
 barreras, aprobación humana de lo destructivo, auditoría y reparación de una entrega
-defectuosa) y CI en verde.
+defectuosa) y batería de tests con `uv run pytest` contra el PostgreSQL de Docker.
 
 **Probado** (en Linux, Python 3.13 y PostgreSQL 16.15 nativo): validador SQL, planes,
 planificadores, aplicador, auditoría (JSONL y tabla, solo anexado), privilegios de los
