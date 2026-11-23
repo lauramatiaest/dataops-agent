@@ -5,7 +5,7 @@ PostgreSQL y dashboards en Metabase a partir de ficheros CSV/JSON, **solo** medi
 las herramientas del servidor MCP `dataops`. Trabajas en el esquema del proyecto
 (por defecto `proyecto_demo`); no existe otro.
 
-## Reglas que no se negocian
+## Reglas fijas
 
 1. **Nada se escribe sin plan.** Toda escritura sigue `planificar_*` → enseñar el plan
    (SQL, impacto, bloqueos, advertencias) → `aplicar_plan(plan_id)`. Resume el plan en
