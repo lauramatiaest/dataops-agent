@@ -8,17 +8,6 @@ Prototipo del Trabajo de Fin de Grado (Ingeniería Informática, Universidad Eur
 2026-27). Objetivo TRL 4: prototipo de extremo a extremo en laboratorio, con datos
 sintéticos.
 
-> **Estado (22/11/2026):** prototipo completo y probado de extremo a extremo en
-> Windows 11 con Docker Desktop: PostgreSQL 16 y Metabase reales, servidor MCP por HTTP,
-> uso interactivo desde Claude Code (proyecto completo por fases, aprobación humana de
-> lo destructivo, reparación de entregas defectuosas, analítica avanzada y dashboards) y
-> **evaluación A/B ejecutada** con `claude -p`. El 23/11 se simplificó el alcance (ver
-> [Estado y limitaciones](#estado-y-limitaciones)). Batería
-> de tests contra PostgreSQL real en verde (248 tests). Detalle en
-> [Estado y limitaciones](#estado-y-limitaciones).
-
----
-
 ## Qué es
 
 Un analista de BI le pide a Claude Code, en lenguaje natural, cosas como *"carga estos
@@ -85,7 +74,7 @@ flowchart LR
         MB[Metabase OSS<br/>v0.64.2.8]
     end
 
-    F[/CSV · JSON<br/>datos/]/ --> H
+    F["Ficheros CSV · JSON<br/>(carpeta datos)"] --> H
     PL -->|rol escritor<br/>una transacción| PG
     H -->|rol lector<br/>solo lectura| PG
     BI -->|API REST| MB
@@ -237,20 +226,6 @@ Permisos: las herramientas de lectura y planificación están permitidas;
 `aplicar_plan` y las de BI piden permiso la primera vez (puedes permitirlas para la
 sesión); `aplicar_plan_destructivo` **pide aprobación siempre**.
 
-## Guion de la demo
-
-1. *"Construye desde cero un modelo de ventas con los ficheros de datos/demo y un
-   dashboard de resumen de ventas."* → descubrimiento y **propuesta de diseño**; el
-   agente se detiene hasta que la persona la aprueba (y resuelve `ref_producto`↔`sku`
-   y la regla de los cancelados).
-2. Tras aprobar: cargas validadas, relaciones sin huérfanos, vistas y dashboard con
-   fila de KPI y secciones.
-3. *"Haz una segmentación de los clientes y un dashboard de clientes."*
-4. *"Borra la tabla clientes."* / *"Elimina los pedidos cancelados."* → planes
-   bloqueados por dependientes y por filas hijas; se enseña la auditoría.
-
-Guion completo con tiempos, frases y plan B: [docs/demo.md](docs/demo.md).
-
 ## Evaluación
 
 Banco de 22 tareas con resultado conocido y comparación **A** (Claude Code con SQL
@@ -302,54 +277,3 @@ validez y detalle en [eval/README.md](eval/README.md).
 ├── tests/                        # pytest (unitarios + integración)
 └── docs/arquitectura.md · docs/demo.md
 ```
-
-## Estado y limitaciones
-
-**Probado en Windows 11** (Docker Desktop, Python 3.12, Claude Code 2.x): `docker compose
-up`, Metabase real (configuración, preguntas y dashboards creados por el agente), uso
-interactivo desde Claude Code con una batería manual de pruebas (construir el modelo,
-barreras, aprobación humana de lo destructivo, auditoría y reparación de una entrega
-defectuosa) y batería de tests con `uv run pytest` contra el PostgreSQL de Docker.
-
-**Probado** (en Linux, Python 3.13 y PostgreSQL 16.15 nativo): validador SQL, planes,
-planificadores, aplicador, auditoría (JSONL y tabla, solo anexado), privilegios de los
-roles, validaciones, generador de datos (la carga real cuadra al céntimo con el
-manifiesto), servidor MCP por cliente en proceso y por stdio, adaptador de Metabase
-contra un simulador de su API, comparador y lanzador de la evaluación con un Claude
-simulado.
-
-**Evaluación A/B con `claude -p` real:** ejecutada (ver [Evaluación](#evaluación)).
-
-**Simplificación del 23/11/2026:** para ajustar el alcance al plazo se retiraron la
-documentación del modelo (comentarios, linaje y diccionario), la segmentación RFM por
-quintiles y las cohortes (sustituidas por una segmentación con dos umbrales), la
-edición de preguntas y dashboards existentes (un cambio se hace creando un dashboard
-nuevo), la interfaz genérica de BI (solo hay integración con Metabase) y la lectura de
-JSON Lines. Se mantienen los dashboards con KPI, secciones, desglose apilado y gráfico
-combinado.
-
-**Limitaciones conocidas:**
-- El validador es análisis estático: es la primera barrera, no la única (los
-  privilegios de PostgreSQL son la que no se puede saltar).
-- Las reglas `deny` de Bash de Claude Code no son una frontera de seguridad: con Bash
-  permitido, un comando distinto podría saltárselas. Por eso Bash no está permitido por
-  defecto y Claude Code pide aprobación para cada comando.
-- Los planes viven en memoria del proceso del servidor MCP (si se reinicia, se
-  replanifica).
-- El contenido de los ficheros llega al modelo (perfiles, ejemplos): un CSV con
-  instrucciones maliciosas en sus celdas es un riesgo de *prompt injection* que mitigan
-  las barreras, pero no elimina.
-- La reparación de entregas solo admite tres transformaciones (renombrar, dividir por
-  10/100/1000 y quitar duplicados exactos); los cambios de formato se piden al origen.
-- La auditoría del servidor no registra los rechazos que la persona hace en Claude Code
-  (ocurren antes de que la llamada llegue al servidor).
-- Los dashboards no tienen filtros interactivos; se ofrecen preguntas separadas por la
-  dimensión que interese.
-- Las descripciones del modelo sustituyen al publicarse las que se hayan editado a mano
-  en Metabase: el modelo es la fuente de verdad.
-
-## Propiedad intelectual
-
-Trabajo de Fin de Grado protegido por la Ley de Propiedad Intelectual; los derechos
-corresponden a la autora (art. 6 de la Normativa General de TFG/TFM de la Universidad
-Europea). Todos los derechos reservados.
